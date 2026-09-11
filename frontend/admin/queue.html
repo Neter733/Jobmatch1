@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Application queue — JobMatch Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@500;600&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/app.css" />
+</head>
+<body style="background:var(--bg);">
+
+  <header class="navbar">
+    <div class="container">
+      <span class="navbar-logo">JobMatch<span style="color:var(--success);">.</span> Admin</span>
+      <div style="flex:1"></div>
+      <button class="btn btn-outline" id="logout-btn" style="padding:8px 16px;font-size:0.85rem;">Log out</button>
+    </div>
+  </header>
+
+  <main class="wide-shell">
+    <h1 style="font-size:1.3rem;margin-bottom:16px;">Application queue</h1>
+
+    <div id="alerts-container"></div>
+
+    <p class="spinner-text" id="loading-text">Loading queue…</p>
+    <div id="queue-container"></div>
+  </main>
+
+  <script src="../js/config.js"></script>
+  <script src="../js/api.js"></script>
+  <script src="../js/admin-queue.js"></script>
+</body>
+</html>

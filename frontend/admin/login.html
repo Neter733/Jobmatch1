@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin sign in — JobMatch</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@500;600&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/app.css" />
+</head>
+<body>
+
+  <div class="admin-shell">
+    <div class="admin-card">
+      <h1 style="font-size:1.2rem;">Admin sign in</h1>
+      <p style="font-size:0.8rem;">Restricted access — application queue management only.</p>
+
+      <form id="admin-login-form" class="form-stack">
+        <input class="field" type="email" id="email" placeholder="Admin email" required />
+        <input class="field" type="password" id="password" placeholder="Password" required />
+        <button type="submit" class="btn btn-primary" id="submit-btn" style="width:100%;">Sign in</button>
+        <p class="error-text" id="form-error" style="display:none;"></p>
+      </form>
+    </div>
+  </div>
+
+  <script src="../js/config.js"></script>
+  <script src="../js/api.js"></script>
+  <script>
+    document.getElementById('admin-login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('submit-btn');
+      const errorEl = document.getElementById('form-error');
+      errorEl.style.display = 'none';
+      btn.disabled = true;
+      btn.textContent = 'Signing in…';
+      try {
+        const data = await api.post('/auth/admin-login', {
+          email: document.getElementById('email').value,
+          password: document.getElementById('password').value
+        });
+        localStorage.setItem('adminToken', data.token);
+        window.location.href = 'queue.html';
+      } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Sign in';
+      }
+    });
+  </script>
+</body>
+</html>

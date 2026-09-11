@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign up — JobMatch</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@500;600&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/app.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+
+  <header class="navbar">
+    <div class="container">
+      <a href="index.html" class="navbar-logo">JobMatch<span>.</span></a>
+      <div style="flex:1"></div>
+    </div>
+  </header>
+
+  <main class="auth-shell">
+    <h1>Create your account</h1>
+    <p>Upload your CV once — we'll match you with jobs and handle the applying.</p>
+
+    <div id="google-btn"></div>
+
+    <div class="auth-divider"><span>or</span></div>
+
+    <form id="signup-form" class="form-stack">
+      <div>
+        <label class="field-label" for="name">Full name</label>
+        <input class="field" type="text" id="name" required />
+      </div>
+      <div>
+        <label class="field-label" for="email">Email</label>
+        <input class="field" type="email" id="email" required />
+      </div>
+      <div>
+        <label class="field-label" for="password">Password</label>
+        <input class="field" type="password" id="password" minlength="8" required />
+      </div>
+      <button type="submit" class="btn btn-primary" id="submit-btn" style="width:100%;">Sign up</button>
+      <p class="error-text" id="form-error" style="display:none;"></p>
+    </form>
+
+    <p class="auth-switch">Already have an account? <a href="login.html">Sign in</a></p>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/nav.js"></script>
+  <script>
+    function handleAuthSuccess({ token }) {
+      localStorage.setItem('token', token);
+      window.location.href = 'onboarding.html';
+    }
+
+    // Google Sign-In
+    window.onload = () => {
+      if (window.google && GOOGLE_CLIENT_ID.startsWith('YOUR_') === false) {
+        google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: async (response) => {
+            try {
+              const data = await api.post('/auth/google', { idToken: response.credential });
+              handleAuthSuccess(data);
+            } catch (err) {
+              showError(err.message);
+            }
+          }
+        });
+        google.accounts.id.renderButton(document.getElementById('google-btn'), {
+          theme: 'outline', size: 'large', width: 320, text: 'signup_with'
+        });
+      } else {
+        document.getElementById('google-btn').innerHTML =
+          '<p style="font-size:0.78rem;color:var(--muted);">Google sign-in not configured yet.</p>';
+      }
+    };
+
+    function showError(message) {
+      const el = document.getElementById('form-error');
+      el.textContent = message;
+      el.style.display = 'block';
+    }
+
+    document.getElementById('signup-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('submit-btn');
+      document.getElementById('form-error').style.display = 'none';
+      btn.disabled = true;
+      btn.textContent = 'Creating account…';
+      try {
+        const data = await api.post('/auth/register', {
+          name: document.getElementById('name').value,
+          email: document.getElementById('email').value,
+          password: document.getElementById('password').value
+        });
+        handleAuthSuccess(data);
+      } catch (err) {
+        showError(err.message);
+        btn.disabled = false;
+        btn.textContent = 'Sign up';
+      }
+    });
+  </script>
+</body>
+</html>

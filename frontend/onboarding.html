@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Build your profile — JobMatch</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@500;600&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+
+  <header class="navbar">
+    <div class="container">
+      <a href="index.html" class="navbar-logo">JobMatch<span>.</span></a>
+      <div style="flex:1"></div>
+      <a href="dashboard.html" class="btn btn-outline" style="padding:8px 16px;font-size:0.85rem;">Skip to dashboard</a>
+    </div>
+  </header>
+
+  <main class="page-shell">
+    <h1>Build your profile</h1>
+    <p class="subtitle">We use this to match you with jobs and write your cover letters. Takes about 15–20 minutes.</p>
+
+    <!-- CV -->
+    <div class="panel" style="margin-bottom:20px;">
+      <h3 style="font-size:1rem;">Your CV</h3>
+      <div class="mode-toggle" id="cv-toggle">
+        <button type="button" class="active" data-mode="upload">Upload file</button>
+        <button type="button" data-mode="type">Type it in</button>
+      </div>
+
+      <div id="cv-upload-block">
+        <input type="file" id="cv-file" accept=".pdf,.docx,.txt" class="field" style="margin-bottom:12px;" />
+      </div>
+      <div id="cv-type-block" style="display:none;">
+        <textarea class="field" id="cv-text" rows="6" placeholder="Paste or type your work history, education, and skills here…"></textarea>
+      </div>
+
+      <button class="btn btn-primary" id="cv-save-btn" style="margin-top:12px;">Save CV</button>
+      <p class="error-text" id="cv-error" style="display:none;"></p>
+    </div>
+
+    <!-- Cover letter -->
+    <div class="panel">
+      <h3 style="font-size:1rem;">Cover letter questionnaire</h3>
+      <p style="font-size:0.85rem;">Required — answers must total at least 1000 words combined.</p>
+
+      <div class="mode-toggle" id="cl-toggle">
+        <button type="button" class="active" data-mode="upload">Upload file</button>
+        <button type="button" data-mode="type">Type it in</button>
+      </div>
+
+      <div id="cl-upload-block">
+        <input type="file" id="cl-file" accept=".pdf,.docx,.txt" class="field" style="margin-bottom:10px;" />
+        <button class="btn btn-outline" id="cl-extract-btn" type="button">Extract answers from file</button>
+        <p style="font-size:0.78rem;margin-top:8px;">We'll pull answers to the 3 questions below from your upload — review and edit them before saving.</p>
+        <p class="error-text" id="cl-extract-error" style="display:none;"></p>
+      </div>
+
+      <div class="form-stack" style="margin-top:16px;">
+        <div>
+          <label class="field-label">1. What's your greatest work achievement, and what did you do?</label>
+          <textarea class="field" id="q1" rows="4"></textarea>
+          <p class="word-counter" id="q1-count">0 / 250 words minimum</p>
+        </div>
+        <div>
+          <label class="field-label">2. List your skills, apps, and software — and how you've used them in your job.</label>
+          <textarea class="field" id="q2" rows="4"></textarea>
+          <p class="word-counter" id="q2-count">0 / 250 words minimum</p>
+        </div>
+        <div>
+          <label class="field-label">3. Tell us more about your work experience and how long you've been in the field.</label>
+          <textarea class="field" id="q3" rows="4"></textarea>
+          <p class="word-counter" id="q3-count">0 / 250 words minimum</p>
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">
+        <span class="word-counter" id="total-count">0 / 1000 words</span>
+        <button class="btn btn-primary" id="cl-save-btn">Save answers</button>
+      </div>
+      <p class="error-text" id="cl-error" style="display:none;"></p>
+    </div>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/nav.js"></script>
+  <script src="js/onboarding.js"></script>
+</body>
+</html>
