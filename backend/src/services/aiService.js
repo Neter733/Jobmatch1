@@ -2,34 +2,33 @@ import axios from 'axios';
 
 // Shared helper so every feature (CV parsing, cover-letter extraction,
 // cover-letter generation) calls the AI API the same way. Currently wired
-// to Google's Gemini API (aistudio.google.com) since it has a genuinely
-// free tier with no credit card required — good for getting the platform
-// fully working before committing to a paid provider.
+// to Groq (console.groq.com) — genuinely free, no credit card or phone
+// verification required, and fast. Runs Llama 3.3 70B rather than a
+// Gemini/Claude-class model, but capable enough for structured extraction
+// and cover-letter drafting.
 //
-// NOTE: on Gemini's free tier, Google may use request data to improve
-// their models. Since this app handles real CVs and personal work
-// history, switch to a paid tier (which disables training) or a
-// no-training provider before handling real users' documents at scale.
-const GEMINI_MODEL = 'gemini-2.5-flash';
-const GEMINI_BASE_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+// Groq's API is OpenAI-compatible, so switching to OpenAI or another
+// OpenAI-compatible provider later is a small change, not a rewrite.
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
+const GROQ_BASE_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 export async function callAI(prompt, { maxTokens = 1500 } = {}) {
   const response = await axios.post(
-    GEMINI_BASE_URL,
+    GROQ_BASE_URL,
     {
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { maxOutputTokens: maxTokens }
+      model: GROQ_MODEL,
+      max_tokens: maxTokens,
+      messages: [{ role: 'user', content: prompt }]
     },
     {
       headers: {
-        'x-goog-api-key': process.env.AI_API_KEY,
+        Authorization: `Bearer ${process.env.AI_API_KEY}`,
         'Content-Type': 'application/json'
       }
     }
   );
 
-  const candidate = response.data.candidates?.[0];
-  return candidate?.content?.parts?.map((p) => p.text || '').join('\n') || '';
+  return response.data.choices?.[0]?.message?.content || '';
 }
 
 // Asks the model for JSON only, strips code-fence wrapping if present,
