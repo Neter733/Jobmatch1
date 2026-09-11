@@ -4,7 +4,7 @@
 const API_BASE_URL =
   window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
     ? 'http://localhost:5000/api'
-    : 'https://YOUR-RAILWAY-BACKEND-URL.up.railway.app/api';
+    : 'https://jobmatch1-production.up.railway.app';
 
 // Same auto-detection for Google Sign-In's client ID — this one is safe
 // to expose publicly (it's not a secret).
