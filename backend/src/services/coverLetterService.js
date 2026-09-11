@@ -1,5 +1,5 @@
-import axios from 'axios';
 import { v2 as cloudinary } from 'cloudinary';
+import { callAI } from './aiService.js';
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -28,25 +28,7 @@ Job description to tailor toward: ${job.description}
 
 The letter should emphasize the candidate's skills and achievements that best match this specific job description.`;
 
-  const response = await axios.post(
-    `${process.env.AI_API_BASE_URL}/messages`,
-    {
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
-      messages: [{ role: 'user', content: prompt }]
-    },
-    {
-      headers: {
-        'x-api-key': process.env.AI_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'Content-Type': 'application/json'
-      }
-    }
-  );
-
-  const letterText = response.data.content
-    .map((block) => block.text || '')
-    .join('\n');
+  const letterText = await callAI(prompt, { maxTokens: 2000 });
 
   const upload = await cloudinary.uploader.upload(
     `data:text/plain;base64,${Buffer.from(letterText).toString('base64')}`,
