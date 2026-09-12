@@ -2,7 +2,12 @@ import Application from '../models/Application.js';
 import SystemAlert from '../models/SystemAlert.js';
 import { findReplacementForUser } from '../services/matchingService.js';
 import { generateCoverLetter } from '../services/coverLetterService.js';
-import { syncJoboFeed, syncExpiredJobs } from '../services/jobIngestionService.js';
+import {
+  syncJoboFeed,
+  syncExpiredJobs,
+  syncArbeitnowFeed,
+  markStaleArbeitnowJobsClosed
+} from '../services/jobIngestionService.js';
 
 export async function getAlerts(req, res) {
   const alerts = await SystemAlert.find({ resolved: false }).sort({ createdAt: -1 });
@@ -72,4 +77,12 @@ export async function triggerJoboSync(req, res) {
   const feedResult = await syncJoboFeed();
   const expiredResult = await syncExpiredJobs();
   res.json({ feedResult, expiredResult });
+}
+
+// Same idea for Arbeitnow — separate endpoint since it's a fully
+// independent source with its own sync/closure logic.
+export async function triggerArbeitnowSync(req, res) {
+  const feedResult = await syncArbeitnowFeed();
+  const closedResult = await markStaleArbeitnowJobsClosed();
+  res.json({ feedResult, closedResult });
 }
