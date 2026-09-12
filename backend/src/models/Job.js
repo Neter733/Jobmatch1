@@ -7,6 +7,8 @@ const jobSchema = new mongoose.Schema(
     title: { type: String, required: true },
     company: String,
     location: String,
+    country: String,
+    industry: String,
     description: String,
     applyLink: { type: String, required: true },
     skillsExtracted: [String], // parsed from description for matching
@@ -19,5 +21,6 @@ const jobSchema = new mongoose.Schema(
 );
 
 jobSchema.index({ source: 1, externalId: 1 }, { unique: true }); // dedupe across ingestion runs
+jobSchema.index({ title: 'text', company: 'text', description: 'text' }); // powers keyword search on the jobs browsing page
 
 export default mongoose.model('Job', jobSchema);
