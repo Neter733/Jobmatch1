@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Browse jobs — JobMatch</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@500;600&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/app.css" />
+  <style>
+    .search-bar {
+      display: flex; gap: 10px; margin-bottom: 16px;
+    }
+    .search-bar input {
+      flex: 1; padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+      font-family: var(--font-body); font-size: 0.9rem;
+    }
+    .filters-bar {
+      display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+      margin-bottom: 24px;
+    }
+    .filters-bar select {
+      padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+      font-family: var(--font-body); font-size: 0.85rem; background: var(--white); color: var(--ink);
+    }
+    .browse-list { display: flex; flex-direction: column; gap: 10px; }
+    .browse-card {
+      background: var(--white); border: 1px solid var(--border); border-radius: var(--radius-sm);
+      padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;
+    }
+    .browse-card-title { font-size: 0.95rem; font-weight: 500; margin-bottom: 4px; }
+    .browse-card-meta { font-size: 0.8rem; color: var(--muted); }
+    .browse-card-tag {
+      font-size: 0.72rem; color: var(--brand); background: rgba(75,46,131,0.08);
+      padding: 3px 10px; border-radius: 12px; margin-right: 6px; white-space: nowrap;
+    }
+    .pagination { display: flex; justify-content: center; gap: 10px; margin-top: 28px; }
+  </style>
+</head>
+<body>
+
+  <header class="navbar">
+    <div class="container">
+      <a href="index.html" class="navbar-logo">JobMatch<span>.</span></a>
+      <nav class="navbar-links">
+        <a href="jobs.html">Browse jobs</a>
+        <a href="index.html#pricing">Pricing</a>
+      </nav>
+      <div class="navbar-actions" data-nav-auth>
+        <a href="login.html" class="btn btn-outline" style="padding:8px 16px;font-size:0.85rem;">Sign in</a>
+        <a href="signup.html" class="btn btn-primary" style="padding:8px 16px;font-size:0.85rem;">Get started</a>
+      </div>
+      <button class="navbar-mobile-toggle" aria-label="Toggle menu" aria-expanded="false">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="wide-shell">
+    <h1 style="font-size:1.4rem;margin-bottom:4px;">Browse jobs</h1>
+    <p style="font-size:0.9rem;color:var(--muted);margin-bottom:20px;">Newest listings first. Sign up to see your personalized match score for each one.</p>
+
+    <div class="search-bar">
+      <input type="text" id="search-input" placeholder="Search by title, company, or keyword…" />
+      <button class="btn btn-primary" id="search-btn">Search</button>
+    </div>
+
+    <div class="filters-bar">
+      <select id="country-filter"><option value="">All countries</option></select>
+      <select id="industry-filter"><option value="">All industries</option></select>
+    </div>
+
+    <p class="spinner-text" id="loading-text">Loading jobs…</p>
+    <div class="browse-list" id="job-list"></div>
+    <div class="pagination" id="pagination"></div>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/nav.js"></script>
+  <script src="js/jobs.js"></script>
+</body>
+</html>
