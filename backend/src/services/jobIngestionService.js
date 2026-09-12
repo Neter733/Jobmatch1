@@ -67,6 +67,8 @@ export async function syncJoboFeed({ workModels, fromScratch = false } = {}) {
           title: listing.title,
           company: listing.company?.name,
           location: formatLocation(listing.locations),
+          country: listing.locations?.[0]?.country || null,
+          industry: classifyIndustry(listing.title, listing.description),
           description: listing.description,
           applyLink: listing.apply_url || listing.listing_url,
           skillsExtracted: extractSkillNames(listing.qualifications),
@@ -134,4 +136,29 @@ function extractSkillNames(qualifications) {
   const mustHave = qualifications.must_have?.skills || [];
   const preferred = qualifications.preferred?.skills || [];
   return [...mustHave, ...preferred].map((s) => s.name.toLowerCase());
+}
+
+// Jobo's feed endpoint doesn't include a clean industry taxonomy field, so
+// this approximates one from title/description keywords. It's a rough
+// categorization for browsing/filtering, not an authoritative classification —
+// worth replacing with a proper enrichment source if this matters more later.
+const INDUSTRY_KEYWORDS = {
+  Technology: ['software', 'engineer', 'developer', 'devops', 'data scientist', 'it ', 'programmer', 'cloud', 'cybersecurity'],
+  Finance: ['accountant', 'finance', 'financial', 'audit', 'tax', 'bookkeeping', 'investment', 'banking'],
+  Healthcare: ['nurse', 'medical', 'health', 'clinical', 'pharmac', 'doctor', 'therapist'],
+  Marketing: ['marketing', 'seo', 'content', 'brand', 'social media', 'growth'],
+  Sales: ['sales', 'account executive', 'business development', 'account manager'],
+  Design: ['designer', 'ux', 'ui', 'graphic', 'product design'],
+  Education: ['teacher', 'tutor', 'instructor', 'education', 'lecturer'],
+  'Customer Support': ['customer support', 'customer service', 'support agent', 'help desk'],
+  Operations: ['operations', 'logistics', 'supply chain', 'warehouse', 'procurement'],
+  'Human Resources': ['hr ', 'human resources', 'recruiter', 'talent acquisition']
+};
+
+function classifyIndustry(title = '', description = '') {
+  const text = `${title} ${description}`.toLowerCase();
+  for (const [industry, keywords] of Object.entries(INDUSTRY_KEYWORDS)) {
+    if (keywords.some((kw) => text.includes(kw))) return industry;
+  }
+  return 'Other';
 }
