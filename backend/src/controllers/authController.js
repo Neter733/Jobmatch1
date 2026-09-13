@@ -55,6 +55,33 @@ export async function adminLogin(req, res) {
   res.json({ token, user: { id: user._id, name: user.name, email: user.email } });
 }
 
+// One-time bootstrap route for creating the very first admin account —
+// there's deliberately no admin signup flow in the UI. This self-disables
+// once any admin exists, and additionally requires a setup key (set as
+// ADMIN_SETUP_KEY in your environment variables) so a stranger can't call
+// it first and claim the admin slot before you do.
+export async function seedAdmin(req, res) {
+  const { email, password, setupKey } = req.query;
+
+  if (!process.env.ADMIN_SETUP_KEY || setupKey !== process.env.ADMIN_SETUP_KEY) {
+    return res.status(403).json({ error: 'Invalid or missing setup key' });
+  }
+
+  const existingAdminCount = await User.countDocuments({ isAdmin: true });
+  if (existingAdminCount > 0) {
+    return res.status(403).json({ error: 'An admin account already exists — this route is now disabled' });
+  }
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'email and password query params are required' });
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  await User.create({ name: 'Admin', email, passwordHash, isAdmin: true });
+
+  res.json({ success: true, message: 'Admin account created — you can now log in at /admin/login.html' });
+}
+
 // The frontend sends only the raw Google ID token — we verify it here,
 // server-side, and pull the user's identity from the verified payload.
 // (Previously this trusted client-supplied googleId/email/name directly,
