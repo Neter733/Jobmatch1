@@ -1,10 +1,10 @@
+```js
 import Job from '../models/Job.js';
 import Application from '../models/Application.js';
 
 import {
-  buildUserEmbeddingText,
-  generateEmbedding,
-  hashText
+  generateUserEmbedding,
+  getEmbeddingDimensions
 } from './embeddingService.js';
 
 
@@ -13,73 +13,84 @@ import {
 // --------------------------------------------------
 
 async function getUserEmbedding(user) {
+  const currentProfile =
+    user.skillsProfile || {};
 
-  const text =
-    buildUserEmbeddingText(
-      user
+  const hasProfile =
+    Array.isArray(
+      currentProfile.skills
+    ) &&
+    currentProfile.skills.length > 0;
+
+  const hasCvText =
+    Boolean(
+      currentProfile.rawParsedText
     );
 
-
-  if (!text) {
+  if (
+    !hasProfile &&
+    !hasCvText
+  ) {
     return null;
   }
 
-
-  const currentHash =
-    hashText(text);
-
+  const expectedDimensions =
+    getEmbeddingDimensions();
 
   // ------------------------------------------------
-  // USE CACHED VECTOR
+  // USE CACHED VECTOR WHEN POSSIBLE
   // ------------------------------------------------
 
   if (
-
     Array.isArray(
       user.matchingEmbedding
     ) &&
-
-    user.matchingEmbedding.length > 0 &&
-
-    user.matchingEmbeddingHash ===
-      currentHash
-
+    user.matchingEmbedding.length ===
+      expectedDimensions &&
+    user.matchingEmbeddingHash
   ) {
-
     return user.matchingEmbedding;
-
   }
 
-
   // ------------------------------------------------
-  // CV CHANGED OR FIRST MATCH
+  // GENERATE NEW GEMINI EMBEDDING
   // ------------------------------------------------
 
-  const embedding =
-    await generateEmbedding(
-      text
+  const result =
+    await generateUserEmbedding(
+      user
     );
 
-
-  if (!embedding) {
+  if (
+    !result?.embedding ||
+    !Array.isArray(
+      result.embedding
+    )
+  ) {
     return null;
   }
 
+  if (
+    result.embedding.length !==
+    expectedDimensions
+  ) {
+    throw new Error(
+      `User embedding dimension mismatch. Expected ${expectedDimensions}, received ${result.embedding.length}.`
+    );
+  }
 
   user.matchingEmbedding =
-    embedding;
+    result.embedding;
 
   user.matchingEmbeddingHash =
-    currentHash;
+    result.embeddingHash;
 
   user.matchingEmbeddingUpdatedAt =
     new Date();
 
-
   await user.save();
 
-
-  return embedding;
+  return result.embedding;
 }
 
 
@@ -91,38 +102,63 @@ function calculateSkillScore(
   userSkills,
   jobSkills
 ) {
-
-  if (!jobSkills.length) {
+  if (
+    !Array.isArray(jobSkills) ||
+    jobSkills.length === 0
+  ) {
     return 0;
   }
 
+  if (
+    !Array.isArray(userSkills) ||
+    userSkills.length === 0
+  ) {
+    return 0;
+  }
+
+  const normalizedUserSkills =
+    new Set(
+      userSkills.map(
+        (skill) =>
+          String(skill)
+            .toLowerCase()
+            .trim()
+      )
+    );
+
+  const normalizedJobSkills =
+    jobSkills
+      .map(
+        (skill) =>
+          String(skill)
+            .toLowerCase()
+            .trim()
+      )
+      .filter(Boolean);
+
+  if (
+    normalizedJobSkills.length === 0
+  ) {
+    return 0;
+  }
 
   const overlap =
-    jobSkills.filter(
+    normalizedJobSkills.filter(
       (skill) =>
-        userSkills.includes(
+        normalizedUserSkills.has(
           skill
         )
     );
 
-
   return (
     overlap.length /
-    jobSkills.length
+    normalizedJobSkills.length
   );
 }
 
 
 // --------------------------------------------------
-// FALLBACK
-// --------------------------------------------------
-//
-// This only runs if Atlas Vector Search has not
-// been configured correctly.
-//
-// MongoDB itself searches the complete collection.
-//
-// Node does NOT load every job into memory.
+// FALLBACK SKILL MATCHING
 // --------------------------------------------------
 
 async function fallbackSkillMatches(
@@ -130,165 +166,117 @@ async function fallbackSkillMatches(
   appliedJobIds,
   limit
 ) {
-
   const userSkills =
     (
       user.skillsProfile
         ?.skills ||
       []
     )
+      .map(
+        (skill) =>
+          String(skill)
+            .toLowerCase()
+            .trim()
+      )
+      .filter(Boolean);
 
-    .map(
-      (skill) =>
-        String(skill)
-          .toLowerCase()
-          .trim()
-    )
-
-    .filter(Boolean);
-
-
-  if (!userSkills.length) {
+  if (
+    userSkills.length === 0
+  ) {
     return [];
   }
 
-
   const jobs =
     await Job.find({
-
       status: 'open',
-
-      skillsExtracted: {
-        $in: userSkills
-      },
 
       _id: {
         $nin: [
           ...appliedJobIds
         ]
+      },
+
+      skillsExtracted: {
+        $in: userSkills
       }
-
     })
-
-    .select(
-      [
-        'title',
-        'company',
-        'location',
-        'country',
-        'industry',
-        'applyLink',
-        'skillsExtracted',
-        'createdAt'
-      ].join(' ')
-    )
-
-    .lean();
-
+      .select(
+        [
+          'title',
+          'company',
+          'location',
+          'country',
+          'industry',
+          'applyLink',
+          'skillsExtracted',
+          'createdAt'
+        ].join(' ')
+      )
+      .lean();
 
   return jobs
-
-    .map(
-      (job) => {
-
-        const jobSkills =
-          (
-            job.skillsExtracted ||
-            []
-          )
-
+    .map((job) => {
+      const jobSkills =
+        (
+          job.skillsExtracted ||
+          []
+        )
           .map(
             (skill) =>
               String(skill)
                 .toLowerCase()
                 .trim()
           )
-
           .filter(Boolean);
 
+      const score =
+        calculateSkillScore(
+          userSkills,
+          jobSkills
+        ) * 100;
 
-        return {
-
-          job,
-
-          score:
-
-            calculateSkillScore(
-              userSkills,
-              jobSkills
-            ) * 100
-
-        };
-
-      }
-    )
-
+      return {
+        job,
+        score
+      };
+    })
     .sort(
       (a, b) => {
-
         if (
           b.score !==
           a.score
         ) {
-
           return (
             b.score -
             a.score
           );
-
         }
-
 
         return (
           new Date(
-            b.job.createdAt ||
-            0
+            b.job.createdAt || 0
           ) -
-
           new Date(
-            a.job.createdAt ||
-            0
+            a.job.createdAt || 0
           )
         );
-
       }
     )
-
-    .slice(
-      0,
-      limit
-    )
-
+    .slice(0, limit)
     .map(
       ({
         job,
         score
       }) => ({
-
-        _id:
-          job._id,
-
-        title:
-          job.title,
-
-        company:
-          job.company,
-
-        location:
-          job.location,
-
-        country:
-          job.country,
-
-        industry:
-          job.industry,
-
-        applyLink:
-          job.applyLink,
-
+        _id: job._id,
+        title: job.title,
+        company: job.company,
+        location: job.location,
+        country: job.country,
+        industry: job.industry,
+        applyLink: job.applyLink,
         matchScore:
           Math.round(score)
-
       })
     );
 }
@@ -302,134 +290,130 @@ export async function findMatchesForUser(
   user,
   limit = 20
 ) {
-
   const userSkills =
     (
       user.skillsProfile
         ?.skills ||
       []
     )
+      .map(
+        (skill) =>
+          String(skill)
+            .toLowerCase()
+            .trim()
+      )
+      .filter(Boolean);
 
-    .map(
-      (skill) =>
-        String(skill)
-          .toLowerCase()
-          .trim()
-    )
-
-    .filter(Boolean);
-
+  const hasCv =
+    Boolean(
+      user.skillsProfile
+        ?.rawParsedText
+    );
 
   if (
-    !userSkills.length &&
-    !user.skillsProfile
-      ?.rawParsedText
+    userSkills.length === 0 &&
+    !hasCv
   ) {
-
     return [];
-
   }
 
 
   // ------------------------------------------------
-  // FIND JOBS USER ALREADY PAID/APPLIED FOR
+  // FIND JOBS USER ALREADY APPLIED FOR
   // ------------------------------------------------
 
   const existingApplications =
     await Application.find({
-
-      user:
-        user._id
-
+      user: user._id
     })
-
-    .select('job')
-
-    .lean();
-
+      .select('job')
+      .lean();
 
   const appliedJobIds =
     new Set(
-
       existingApplications
-
         .filter(
           (application) =>
             application.job
         )
-
         .map(
           (application) =>
             String(
               application.job
             )
         )
-
     );
 
 
   // ------------------------------------------------
-  // CREATE / LOAD CV VECTOR
+  // CREATE / LOAD USER CV VECTOR
   // ------------------------------------------------
 
-  const userEmbedding =
-    await getUserEmbedding(
-      user
+  let userEmbedding;
+
+  try {
+    userEmbedding =
+      await getUserEmbedding(
+        user
+      );
+  } catch (error) {
+    console.error(
+      '[matching] failed to generate user embedding:',
+      error.message
     );
 
+    return fallbackSkillMatches(
+      user,
+      appliedJobIds,
+      limit
+    );
+  }
 
   if (!userEmbedding) {
-    return [];
+    return fallbackSkillMatches(
+      user,
+      appliedJobIds,
+      limit
+    );
   }
 
 
-  // MongoDB first returns a larger candidate pool.
-  //
-  // We then perform hybrid ranking and return 20.
+  // ------------------------------------------------
+  // VECTOR SEARCH CONFIGURATION
+  // ------------------------------------------------
+
   const vectorResultLimit =
     Math.max(
-
       Number(
         process.env
           .JOB_VECTOR_RESULTS ||
-        200
+          200
       ),
-
       limit * 5
-
     );
-
 
   const numCandidates =
     Math.max(
-
       Number(
         process.env
           .JOB_VECTOR_CANDIDATES ||
-        1000
+          1000
       ),
-
       vectorResultLimit
-
     );
 
 
+  // ------------------------------------------------
+  // MONGODB ATLAS VECTOR SEARCH
+  // ------------------------------------------------
+
   let candidates;
 
-
   try {
-
-    // ------------------------------------------------
-    // SEMANTIC SEARCH
-    // ------------------------------------------------
-
     candidates =
       await Job.aggregate([
-
         {
-
           $vectorSearch: {
-
             index:
               process.env
                 .JOB_VECTOR_INDEX_NAME ||
@@ -449,58 +433,39 @@ export async function findMatchesForUser(
             filter: {
               status: 'open'
             }
-
           }
-
         },
 
-
         {
-
           $project: {
-
             title: 1,
-
             company: 1,
-
             location: 1,
-
             country: 1,
-
             industry: 1,
-
             applyLink: 1,
-
             skillsExtracted: 1,
-
             createdAt: 1,
 
             semanticScore: {
               $meta:
                 'vectorSearchScore'
             }
-
           }
-
         }
-
       ]);
 
-
   } catch (error) {
-
     console.error(
       '[matching] vector search unavailable:',
       error.message
     );
-
 
     return fallbackSkillMatches(
       user,
       appliedJobIds,
       limit
     );
-
   }
 
 
@@ -510,33 +475,30 @@ export async function findMatchesForUser(
 
   const ranked =
     candidates
-
-      // Remove jobs this user already applied to.
+      // Remove jobs already applied for.
       .filter(
         (job) =>
           !appliedJobIds.has(
-            String(job._id)
+            String(
+              job._id
+            )
           )
       )
 
       .map(
         (job) => {
-
           const jobSkills =
             (
               job.skillsExtracted ||
               []
             )
-
-            .map(
-              (skill) =>
-                String(skill)
-                  .toLowerCase()
-                  .trim()
-            )
-
-            .filter(Boolean);
-
+              .map(
+                (skill) =>
+                  String(skill)
+                    .toLowerCase()
+                    .trim()
+              )
+              .filter(Boolean);
 
           const skillScore =
             calculateSkillScore(
@@ -544,106 +506,70 @@ export async function findMatchesForUser(
               jobSkills
             );
 
-
           const semanticScore =
             Math.min(
-
               Math.max(
                 Number(
                   job.semanticScore ||
-                  0
+                    0
                 ),
                 0
               ),
-
               1
-
             );
 
-
-          // ------------------------------------------
-          // FINAL MATCH SCORE
-          // ------------------------------------------
-          //
-          // 85% semantic understanding
-          //
-          // 15% explicit skills overlap
-          // ------------------------------------------
-
+          // 85% semantic similarity
+          // 15% exact skill overlap
           const finalScore =
-
-            semanticScore *
-            0.85
-
-            +
-
-            skillScore *
-            0.15;
-
+            semanticScore * 0.85 +
+            skillScore * 0.15;
 
           return {
             job,
             finalScore
           };
-
         }
       )
 
-
-      // Highest score first.
       .sort(
         (a, b) => {
-
           if (
             b.finalScore !==
             a.finalScore
           ) {
-
             return (
               b.finalScore -
               a.finalScore
             );
-
           }
 
-
-          // If scores tie,
-          // newest job wins.
           return (
-
             new Date(
-              b.job.createdAt ||
-              0
-            )
-
-            -
-
+              b.job.createdAt || 0
+            ) -
             new Date(
-              a.job.createdAt ||
-              0
+              a.job.createdAt || 0
             )
-
           );
-
         }
       )
 
-
-      // User still sees only 20.
       .slice(
         0,
         limit
       );
 
 
+  // ------------------------------------------------
+  // RESPONSE
+  // ------------------------------------------------
+
   return ranked.map(
     ({
       job,
       finalScore
     }) => ({
-
-      _id:
-        job._id,
+      _id: job._id,
 
       title:
         job.title,
@@ -665,32 +591,26 @@ export async function findMatchesForUser(
 
       matchScore:
         Math.round(
-          finalScore *
-          100
+          finalScore * 100
         )
-
     })
   );
 }
 
 
 // --------------------------------------------------
-// REPLACEMENT JOB
+// FIND REPLACEMENT JOB
 // --------------------------------------------------
 
 export async function findReplacementForUser(
   user,
   excludeJobIds = []
 ) {
-
-  // Search more than 5 here because a number of
-  // returned jobs may already be excluded.
   const matches =
     await findMatchesForUser(
       user,
       50
     );
-
 
   const excluded =
     new Set(
@@ -699,9 +619,7 @@ export async function findReplacementForUser(
       )
     );
 
-
   return (
-
     matches.find(
       (match) =>
         !excluded.has(
@@ -709,11 +627,7 @@ export async function findReplacementForUser(
             match._id
           )
         )
-    )
-
-    ||
-
-    null
-
+    ) || null
   );
 }
+```
