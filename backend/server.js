@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit';
 import mongoSanitize from 'express-mongo-sanitize';
 import { connectDB } from './src/config/db.js';
 import { startJoboScheduler } from './src/jobs/joboScheduler.js';
+import { startEmbeddingScheduler } from './src/jobs/embeddingScheduler.js';
 
 import authRoutes from './src/routes/authRoutes.js';
 import jobRoutes from './src/routes/jobRoutes.js';
@@ -79,6 +80,15 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 5000;
 
 connectDB().then(() => {
-  app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  app.listen(
+    PORT,
+    () =>
+      console.log(
+        `Server running on port ${PORT}`
+      )
+  );
+
   startJoboScheduler();
+
+  startEmbeddingScheduler();
 });
