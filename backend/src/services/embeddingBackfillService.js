@@ -1,4 +1,3 @@
-```js
 import Job from '../models/Job.js';
 
 import {
@@ -232,4 +231,3 @@ export async function embedAllPendingJobs(
       totalProcessed
   };
 }
-```

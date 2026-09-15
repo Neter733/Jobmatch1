@@ -1,4 +1,3 @@
-```js
 import Job from '../models/Job.js';
 import Application from '../models/Application.js';
 
@@ -630,4 +629,3 @@ export async function findReplacementForUser(
     ) || null
   );
 }
-```

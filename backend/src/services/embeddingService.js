@@ -1,4 +1,3 @@
-```js
 import axios from 'axios';
 import crypto from 'crypto';
 
@@ -370,4 +369,33 @@ export async function generateUserEmbedding(
 export function getEmbeddingDimensions() {
   return GEMINI_EMBEDDING_DIMENSIONS;
 }
-```
+
+
+// --------------------------------------------------
+// BACKWARD-COMPATIBILITY EXPORTS
+// --------------------------------------------------
+// These aliases prevent older deployed code from
+// crashing if it still imports the previous names.
+
+export const generateEmbeddings =
+  generateJobEmbeddings;
+
+export async function generateEmbedding(text) {
+  const cleaned = truncateText(text);
+
+  if (!cleaned.trim()) {
+    throw new Error(
+      'Cannot generate embedding: empty text'
+    );
+  }
+
+  const [embedding] =
+    await embedTexts(
+      [cleaned],
+      'RETRIEVAL_QUERY'
+    );
+
+  return embedding;
+}
+
+export { hashText };

@@ -1,4 +1,3 @@
-```js
 import mongoose from 'mongoose';
 import crypto from 'crypto';
 
@@ -289,4 +288,3 @@ export default mongoose.model(
   'Job',
   jobSchema
 );
-```
