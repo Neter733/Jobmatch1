@@ -1,270 +1,155 @@
 import Job from '../models/Job.js';
-
 import {
-  buildJobEmbeddingText,
-  generateEmbeddings,
-  hashText
+  generateJobEmbeddings
 } from './embeddingService.js';
 
+const DEFAULT_BATCH_SIZE = Number(
+  process.env.EMBEDDING_BATCH_SIZE || 20
+);
 
-let workerRunning = false;
-
-
-// --------------------------------------------------
-// EMBED JOBS THAT NEED EMBEDDINGS
-// --------------------------------------------------
-
+/**
+ * Find jobs that still need embeddings and generate them in batches.
+ *
+ * A job needs an embedding when:
+ * - it has no embedding
+ * - its embedding is not the expected dimension
+ * - its source content changed since the previous embedding
+ * - it has no embedding hash
+ */
 export async function embedPendingJobs(
-  batchSize =
-    Number(
-      process.env.EMBEDDING_BATCH_SIZE ||
-      20
-    )
+  batchSize = DEFAULT_BATCH_SIZE
 ) {
+  const jobs = await Job.find({
+    status: 'open',
+    $or: [
+      {
+        embedding: {
+          $exists: false
+        }
+      },
+      {
+        'embedding.0': {
+          $exists: false
+        }
+      },
+      {
+        embeddingHash: {
+          $exists: false
+        }
+      },
+      {
+        $expr: {
+          $ne: [
+            '$embeddingSourceHash',
+            '$embeddingHash'
+          ]
+        }
+      }
+    ]
+  })
+    .sort({ updatedAt: 1 })
+    .limit(batchSize)
+    .lean();
 
-  // Prevent two workers from running
-  // simultaneously on one server instance.
-  if (workerRunning) {
+  if (!jobs.length) {
     return {
-      skipped: true,
-      reason:
-        'embedding worker already running'
+      processed: 0,
+      remaining: 0
     };
   }
 
+  console.log(
+    `[embedding] Generating embeddings for ${jobs.length} jobs...`
+  );
 
-  if (!process.env.OPENAI_API_KEY) {
-    return {
-      skipped: true,
-      reason:
-        'OPENAI_API_KEY is not configured'
-    };
-  }
+  const results = await generateJobEmbeddings(jobs);
 
-
-  workerRunning = true;
-
-
-  try {
-
-    // ------------------------------------------------
-    // FIND JOBS NEEDING AN EMBEDDING
-    // ------------------------------------------------
-    //
-    // This includes:
-    //
-    // 1. old jobs that existed before this feature
-    //
-    // 2. newly imported jobs
-    //
-    // 3. jobs whose title/description/skills changed
-    //
-    // ------------------------------------------------
-
-    const jobs =
-      await Job.find({
-
-        status: 'open',
-
-        $or: [
-
-          {
-            embedding: {
-              $exists: false
-            }
-          },
-
-          {
-            embeddingSourceHash: {
-              $exists: false
-            }
-          },
-
-          {
-            embeddingSourceHash: null
-          },
-
-          {
-            $expr: {
-              $ne: [
-                '$embeddingHash',
-                '$embeddingSourceHash'
-              ]
-            }
+  const bulkOperations = results.map(
+    ({ job, embedding, embeddingHash }) => ({
+      updateOne: {
+        filter: {
+          _id: job._id
+        },
+        update: {
+          $set: {
+            embedding,
+            embeddingHash,
+            embeddingUpdatedAt: new Date()
           }
+        }
+      }
+    })
+  );
 
-        ]
+  if (bulkOperations.length) {
+    await Job.bulkWrite(bulkOperations);
+  }
 
-      })
+  console.log(
+    `[embedding] Successfully embedded ${bulkOperations.length} jobs.`
+  );
 
-      // Old jobs first during initial migration.
-      .sort({
-        createdAt: 1
-      })
+  const remaining = await Job.countDocuments({
+    status: 'open',
+    $or: [
+      {
+        embedding: {
+          $exists: false
+        }
+      },
+      {
+        'embedding.0': {
+          $exists: false
+        }
+      },
+      {
+        embeddingHash: {
+          $exists: false
+        }
+      },
+      {
+        $expr: {
+          $ne: [
+            '$embeddingSourceHash',
+            '$embeddingHash'
+          ]
+        }
+      }
+    ]
+  });
 
-      .limit(batchSize)
+  return {
+    processed: bulkOperations.length,
+    remaining
+  };
+}
 
-      .select(
-        [
-          'title',
-          'company',
-          'location',
-          'country',
-          'industry',
-          'description',
-          'skillsExtracted',
-          'embeddingSourceHash'
-        ].join(' ')
-      )
+/**
+ * Keep processing batches until there are no more jobs that need
+ * embeddings.
+ *
+ * This function is available for manual/backfill use.
+ */
+export async function embedAllPendingJobs(
+  batchSize = DEFAULT_BATCH_SIZE
+) {
+  let totalProcessed = 0;
 
-      .lean();
+  while (true) {
+    const result = await embedPendingJobs(batchSize);
 
+    totalProcessed += result.processed;
 
-    if (!jobs.length) {
-
-      return {
-        processed: 0
-      };
+    if (result.processed === 0) {
+      break;
     }
-
-
-    // ------------------------------------------------
-    // CREATE TEXT FOR EACH JOB
-    // ------------------------------------------------
-
-    const texts =
-      jobs.map(
-        buildJobEmbeddingText
-      );
-
-
-    // Existing jobs don't have
-    // embeddingSourceHash yet.
-    //
-    // Generate one during migration.
-    const sourceHashes =
-      jobs.map(
-        (job, index) =>
-
-          job.embeddingSourceHash ||
-
-          hashText(
-            texts[index]
-          )
-      );
-
-
-    // ------------------------------------------------
-    // GENERATE ALL EMBEDDINGS IN ONE REQUEST
-    // ------------------------------------------------
-
-    const embeddings =
-      await generateEmbeddings(
-        texts
-      );
-
-
-    // ------------------------------------------------
-    // SAVE RESULTS USING BULKWRITE
-    // ------------------------------------------------
-
-    const operations =
-      jobs.map(
-        (job, index) => {
-
-          const filter = {
-
-            _id: job._id,
-
-            status: 'open'
-          };
-
-
-          // If this was already a newer job with
-          // a source hash, make sure it did not
-          // change while OpenAI was processing it.
-          if (
-            job.embeddingSourceHash
-          ) {
-
-            filter.embeddingSourceHash =
-              job.embeddingSourceHash;
-
-          } else {
-
-            filter.$or = [
-
-              {
-                embeddingSourceHash: {
-                  $exists: false
-                }
-              },
-
-              {
-                embeddingSourceHash:
-                  null
-              }
-
-            ];
-          }
-
-
-          return {
-
-            updateOne: {
-
-              filter,
-
-              update: {
-
-                $set: {
-
-                  embedding:
-                    embeddings[index],
-
-                  embeddingSourceHash:
-                    sourceHashes[index],
-
-                  embeddingHash:
-                    sourceHashes[index],
-
-                  embeddingUpdatedAt:
-                    new Date()
-                }
-
-              }
-
-            }
-
-          };
-
-        }
-      );
-
-
-    const result =
-      await Job.bulkWrite(
-        operations,
-        {
-          ordered: false
-        }
-      );
-
-
-    return {
-
-      processed:
-        result.modifiedCount,
-
-      requested:
-        jobs.length
-
-    };
-
-
-  } finally {
-
-    workerRunning = false;
-
   }
+
+  console.log(
+    `[embedding] Backfill finished. Total processed: ${totalProcessed}`
+  );
+
+  return {
+    processed: totalProcessed
+  };
 }
