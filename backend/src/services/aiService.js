@@ -9,7 +9,7 @@ import axios from 'axios';
 //
 // Groq's API is OpenAI-compatible, so switching to OpenAI or another
 // OpenAI-compatible provider later is a small change, not a rewrite.
-const GROQ_MODEL = 'openai/gpt-oss-20b';
+const GROQ_MODEL = 'llama-3.1-8b-instant';
 const GROQ_BASE_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 export async function callAI(prompt, { maxTokens = 1500 } = {}) {
