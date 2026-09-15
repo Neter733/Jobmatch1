@@ -34,25 +34,25 @@ export async function login(req, res) {
   res.json({ token, user: { id: user._id, name: user.name, email: user.email } });
 }
 
-// Dedicated admin login — deliberately separate from the regular /login
-// route. Even a correct email/password for a non-admin account is
-// rejected here, so the admin queue dashboard can never be reached
-// through a regular user's credentials or session.
+// Shared login for the internal team (staff/manager/admin) — deliberately
+// separate from the regular /login route. A regular user's credentials
+// are rejected here even if correct, so the team dashboard can never be
+// reached through a customer account.
 export async function adminLogin(req, res) {
   const { email, password } = req.body;
   const user = await User.findOne({ email });
 
-  if (!user || !user.passwordHash || !user.isAdmin) {
-    return res.status(401).json({ error: 'Invalid admin credentials' });
+  if (!user || !user.passwordHash || !['staff', 'manager', 'admin'].includes(user.role)) {
+    return res.status(401).json({ error: 'Invalid credentials' });
   }
 
   const valid = await bcrypt.compare(password, user.passwordHash);
-  if (!valid) return res.status(401).json({ error: 'Invalid admin credentials' });
+  if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
 
-  // Shorter-lived token for admin sessions, since this account can see
+  // Shorter-lived token for team sessions, since these accounts can see
   // every user's CV, cover letter, and payment data.
   const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '8h' });
-  res.json({ token, user: { id: user._id, name: user.name, email: user.email } });
+  res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
 }
 
 // One-time bootstrap route for creating the very first admin account —
@@ -77,8 +77,23 @@ export async function seedAdmin(req, res) {
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
-  await User.create({ name: 'Admin', email, passwordHash, isAdmin: true });
 
+  // If this email already belongs to a regular user (e.g. from earlier
+  // testing), promote that existing account to admin instead of failing
+  // on a duplicate-email error — this is the more useful behavior anyway.
+  const existingUser = await User.findOne({ email });
+  if (existingUser) {
+    existingUser.isAdmin = true;
+    existingUser.role = 'admin';
+    existingUser.passwordHash = passwordHash;
+    await existingUser.save();
+    return res.json({
+      success: true,
+      message: 'Existing account promoted to admin — you can now log in at /admin/login.html'
+    });
+  }
+
+  await User.create({ name: 'Admin', email, passwordHash, isAdmin: true, role: 'admin' });
   res.json({ success: true, message: 'Admin account created — you can now log in at /admin/login.html' });
 }
 

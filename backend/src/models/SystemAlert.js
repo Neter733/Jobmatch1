@@ -4,7 +4,7 @@ const systemAlertSchema = new mongoose.Schema(
   {
     type: {
       type: String,
-      enum: ['jobo_auth_failed', 'jobo_billing_issue', 'jobo_sync_error', 'arbeitnow_sync_error'],
+      enum: ['jobo_auth_failed', 'jobo_billing_issue', 'jobo_sync_error', 'arbeitnow_sync_error', 'job_sync_error'],
       required: true
     },
     message: String,

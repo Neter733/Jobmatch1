@@ -26,7 +26,8 @@ const applicationSchema = new mongoose.Schema(
       default: 'pending_payment'
     },
 
-    appliedAt: Date
+    appliedAt: Date,
+    completedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' } // which staff member marked this applied
   },
   { timestamps: true }
 );

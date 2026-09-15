@@ -4,8 +4,7 @@ import Application from '../models/Application.js';
 import Job from '../models/Job.js';
 import User from '../models/User.js';
 import { generateCoverLetter } from '../services/coverLetterService.js';
-
-const FEE_PER_APPLICATION = { NGN: 20000, USD: 100 }; // minor units: 200 NGN, $1 placeholder for USD — set your real USD price later
+import { getPriceForCurrency } from '../services/pricingService.js';
 
 // Paystack signs every webhook with HMAC-SHA512 of the raw request body,
 // using your secret key. Verifying this is the only way to know a
@@ -30,6 +29,32 @@ export function verifyPaystackSignature(req, res, next) {
   next();
 }
 
+// Lets the dashboard show the real, current price per application — set
+// by the admin, not hardcoded on the frontend.
+export async function getCurrentPricing(req, res) {
+  const amount = await getPriceForCurrency(req.user.currency);
+  res.json({ currency: req.user.currency, amount });
+}
+
+// Lets a user see how much they've spent and how many jobs they've
+// applied to, on their own dashboard.
+export async function getMyStats(req, res) {
+  const [spentAgg, appliedCount, purchasedCount] = await Promise.all([
+    Application.aggregate([
+      { $match: { user: req.user._id, paymentStatus: 'paid' } },
+      { $group: { _id: '$currency', total: { $sum: '$amount' } } }
+    ]),
+    Application.countDocuments({ user: req.user._id, status: 'applied' }),
+    Application.countDocuments({ user: req.user._id, paymentStatus: 'paid' })
+  ]);
+
+  res.json({
+    totalSpent: spentAgg, // e.g. [{ _id: 'NGN', total: 60000 }]
+    jobsAppliedCount: appliedCount, // actually submitted by staff
+    applicationsPurchasedCount: purchasedCount // paid for, may still be queued
+  });
+}
+
 export async function bulkApply(req, res) {
   const { jobIds } = req.body;
   const user = req.user;
@@ -37,7 +62,7 @@ export async function bulkApply(req, res) {
   if (!jobIds?.length) return res.status(400).json({ error: 'No jobs selected' });
 
   const jobs = await Job.find({ _id: { $in: jobIds }, status: 'open' });
-  const amountEach = FEE_PER_APPLICATION[user.currency];
+  const amountEach = await getPriceForCurrency(user.currency);
 
   const applications = await Application.insertMany(
     jobs.map((job) => ({

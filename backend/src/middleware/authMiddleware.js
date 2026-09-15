@@ -19,3 +19,21 @@ export function requireAdmin(req, res, next) {
   if (!req.user?.isAdmin) return res.status(403).json({ error: 'Admin access only' });
   next();
 }
+
+// Any internal team member — staff, manager, or admin — can access the
+// application queue and user profiles.
+export function requireStaffOrAbove(req, res, next) {
+  if (!['staff', 'manager', 'admin'].includes(req.user?.role)) {
+    return res.status(403).json({ error: 'Staff access only' });
+  }
+  next();
+}
+
+// Manager-only actions: viewing staff performance, resolving escalations,
+// resetting staff passwords. Admin can do everything a manager can.
+export function requireManagerOrAbove(req, res, next) {
+  if (!['manager', 'admin'].includes(req.user?.role)) {
+    return res.status(403).json({ error: 'Manager access only' });
+  }
+  next();
+}

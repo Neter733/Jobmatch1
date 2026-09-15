@@ -24,7 +24,16 @@ const userSchema = new mongoose.Schema(
       wordCount: { type: Number, default: 0 }
     },
 
-    isAdmin: { type: Boolean, default: false }
+    // 'user' = regular customer. 'staff'/'manager'/'admin' = internal team.
+    // isAdmin is kept for backward compatibility with existing admin
+    // auth checks, but role is the source of truth going forward.
+    role: { type: String, enum: ['user', 'staff', 'manager', 'admin'], default: 'user' },
+    isAdmin: { type: Boolean, default: false },
+
+    // For staff/manager/admin: updated on every heartbeat while their
+    // dashboard tab is open, used to show "online" status to managers.
+    lastActiveAt: { type: Date }
+
   },
   { timestamps: true }
 );

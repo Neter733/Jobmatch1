@@ -1,19 +1,22 @@
 import axios from 'axios';
 import Job from '../models/Job.js';
 import SyncState from '../models/SyncState.js';
+import { getSourceConfig, classifyIndustry, stripHtml, parseCountryFromText, extractSkillNamesFromText } from './jobSourceUtils.js';
 
 const JOBO_BASE_URL = 'https://connect.jobo.world';
 
-const joboClient = axios.create({
-  baseURL: JOBO_BASE_URL,
-  headers: { 'X-Api-Key': process.env.JOBO_API_KEY }
-});
+function joboClientWithKey(apiKey) {
+  return axios.create({
+    baseURL: JOBO_BASE_URL,
+    headers: { 'X-Api-Key': apiKey }
+  });
+}
 
 // Jobo rate-limits like most usage-based APIs — a 429 means "back off",
 // not "fail the whole sync". Retries with exponential backoff before
 // giving up, so a single rate-limit hit during a large backfill doesn't
-// abort the entire run.
-async function requestWithRetry(fn, retries = 4) {
+// abort the entire run. Reused by other sources too.
+export async function requestWithRetry(fn, retries = 4) {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       return await fn();
@@ -26,7 +29,7 @@ async function requestWithRetry(fn, retries = 4) {
         const waitMs = retryAfterHeader
           ? Number(retryAfterHeader) * 1000
           : 2 ** attempt * 1000; // 1s, 2s, 4s, 8s
-        console.warn(`[jobo-sync] rate limited — retrying in ${waitMs}ms (attempt ${attempt + 1}/${retries})`);
+        console.warn(`[sync] rate limited — retrying in ${waitMs}ms (attempt ${attempt + 1}/${retries})`);
         await new Promise((resolve) => setTimeout(resolve, waitMs));
         continue;
       }
@@ -37,10 +40,13 @@ async function requestWithRetry(fn, retries = 4) {
 }
 
 // Full backfill / ongoing sync using Jobo's cursor-paginated Feed API.
-// Call this on a schedule (e.g. every 15-30 min). Resumes automatically
-// from the last saved cursor — pass { fromScratch: true } to force a
-// full re-backfill instead (cursor reset to null).
+// Resumes automatically from the last saved cursor.
 export async function syncJoboFeed({ workModels, fromScratch = false } = {}) {
+  const { enabled, apiKey } = await getSourceConfig('jobo', process.env.JOBO_API_KEY);
+  if (!enabled) return { totalSynced: 0, skipped: true, reason: 'Jobo source disabled in admin panel' };
+
+  const joboClient = joboClientWithKey(apiKey);
+
   const state = await SyncState.findOneAndUpdate(
     { source: 'jobo' },
     { $setOnInsert: { source: 'jobo' } },
@@ -82,8 +88,6 @@ export async function syncJoboFeed({ workModels, fromScratch = false } = {}) {
 
     nextCursor = data.next_cursor;
     hasMore = data.has_more;
-
-    // Save progress after every batch so a crash mid-sync doesn't lose the cursor
     state.lastCursor = nextCursor;
     await state.save();
   }
@@ -91,10 +95,12 @@ export async function syncJoboFeed({ workModels, fromScratch = false } = {}) {
   return { totalSynced, lastCursor: nextCursor };
 }
 
-// Call this on the same schedule as syncJoboFeed to mark jobs closed —
-// far more reliable than guessing from staleness, since Jobo tracks
-// removals directly from the source ATS.
 export async function syncExpiredJobs() {
+  const { enabled, apiKey } = await getSourceConfig('jobo', process.env.JOBO_API_KEY);
+  if (!enabled) return { closedCount: 0, skipped: true };
+
+  const joboClient = joboClientWithKey(apiKey);
+
   const state = await SyncState.findOneAndUpdate(
     { source: 'jobo' },
     { $setOnInsert: { source: 'jobo' } },
@@ -138,84 +144,21 @@ function extractSkillNames(qualifications) {
   return [...mustHave, ...preferred].map((s) => s.name.toLowerCase());
 }
 
-// Jobo's feed endpoint doesn't include a clean industry taxonomy field, so
-// this approximates one from title/description keywords. It's a rough
-// categorization for browsing/filtering, not an authoritative classification —
-// worth replacing with a proper enrichment source if this matters more later.
-const INDUSTRY_KEYWORDS = {
-  Technology: ['software', 'engineer', 'developer', 'devops', 'data scientist', 'it ', 'programmer', 'cloud', 'cybersecurity'],
-  Finance: ['accountant', 'finance', 'financial', 'audit', 'tax', 'bookkeeping', 'investment', 'banking'],
-  Healthcare: ['nurse', 'medical', 'health', 'clinical', 'pharmac', 'doctor', 'therapist'],
-  Marketing: ['marketing', 'seo', 'content', 'brand', 'social media', 'growth'],
-  Sales: ['sales', 'account executive', 'business development', 'account manager'],
-  Design: ['designer', 'ux', 'ui', 'graphic', 'product design'],
-  Education: ['teacher', 'tutor', 'instructor', 'education', 'lecturer'],
-  'Customer Support': ['customer support', 'customer service', 'support agent', 'help desk'],
-  Operations: ['operations', 'logistics', 'supply chain', 'warehouse', 'procurement'],
-  'Human Resources': ['hr ', 'human resources', 'recruiter', 'talent acquisition']
-};
-
-function classifyIndustry(title = '', description = '') {
-  const text = `${title} ${description}`.toLowerCase();
-  for (const [industry, keywords] of Object.entries(INDUSTRY_KEYWORDS)) {
-    if (keywords.some((kw) => text.includes(kw))) return industry;
-  }
-  return 'Other';
-}
-
-// Arbeitnow doesn't give a structured country field, but city/country
-// names often appear in the "location" field or embedded in the
-// description (frequently in German, e.g. "Standort: Frankfurt").
-// This is a best-effort heuristic, not real geocoding — good enough for
-// filtering, not authoritative. Arbeitnow is overwhelmingly a
-// Germany/DACH-region job board (every listing footer literally links to
-// "Jobs in Germany"), so a non-remote job with no other city/country
-// signal defaults to Germany rather than staying null — remote jobs with
-// no signal are left null since they could genuinely be anywhere.
-const CITY_TO_COUNTRY = {
-  germany: ['frankfurt', 'berlin', 'münchen', 'munich', 'düsseldorf', 'hamburg', 'köln', 'cologne',
-    'stuttgart', 'leipzig', 'dresden', 'nürnberg', 'nuremberg', 'hannover', 'bremen', 'essen',
-    'dortmund', 'bonn', 'mannheim', 'karlsruhe', 'deutschland'],
-  austria: ['wien', 'vienna', 'salzburg', 'graz', 'innsbruck', 'österreich'],
-  switzerland: ['zürich', 'zurich', 'genf', 'geneva', 'basel', 'bern', 'lausanne', 'schweiz'],
-  netherlands: ['amsterdam', 'rotterdam', 'den haag', 'the hague', 'utrecht', 'niederlande'],
-  'united kingdom': ['london', 'manchester', 'birmingham', 'united kingdom'],
-  france: ['paris', 'lyon', 'marseille', 'frankreich'],
-  spain: ['madrid', 'barcelona', 'spanien'],
-  poland: ['warsaw', 'warszawa', 'krakow', 'kraków', 'polen'],
-  italy: ['milan', 'milano', 'rome', 'roma', 'italien']
-};
-
-function parseCountryFromArbeitnowListing(location = '', description = '', remote = false) {
-  const text = `${location} ${description}`.toLowerCase();
-
-  for (const [country, keywords] of Object.entries(CITY_TO_COUNTRY)) {
-    if (keywords.some((kw) => text.includes(kw))) {
-      // Capitalize each word for display (e.g. "united kingdom" -> "United Kingdom")
-      return country.replace(/\b\w/g, (c) => c.toUpperCase());
-    }
-  }
-
-  return remote ? null : 'Germany';
-}
-const MAX_ARBEITNOW_PAGES = 50; // safety cap against an unbounded loop
+const MAX_ARBEITNOW_PAGES = 50;
 const ARBEITNOW_BASE_URL = 'https://arbeitnow.com/api/job-board-api';
 
-// Arbeitnow is a free, public job board API — no API key required at all.
-// Unlike Jobo, it doesn't give a structured "country" field, so country is
-// derived heuristically via parseCountryFromArbeitnowListing() above.
-// It DOES give a "tags" array (e.g. "Tech & Engineering",
-// "Finance Risk & Compliance") that works well as a real industry
-// category — more reliable than the keyword-based classifyIndustry()
-// fallback used for Jobo, so it's used here when present.
+// Arbeitnow is free, public, no API key. Has a "tags" array used directly
+// as industry when present — more reliable than the keyword fallback.
 export async function syncArbeitnowFeed() {
+  const { enabled } = await getSourceConfig('arbeitnow', null);
+  if (!enabled) return { totalSynced: 0, skipped: true, reason: 'Arbeitnow source disabled in admin panel' };
+
   let page = 1;
   let totalSynced = 0;
 
   while (page <= MAX_ARBEITNOW_PAGES) {
     const { data } = await axios.get(ARBEITNOW_BASE_URL, { params: { page } });
     const listings = data.data || [];
-
     if (!listings.length) break;
 
     for (const listing of listings) {
@@ -227,7 +170,7 @@ export async function syncArbeitnowFeed() {
           title: listing.title,
           company: listing.company_name,
           location: listing.location || (listing.remote ? 'Remote' : 'Not specified'),
-          country: parseCountryFromArbeitnowListing(listing.location, cleanDescription, listing.remote),
+          country: parseCountryFromText(listing.location, cleanDescription, listing.remote, 'Germany'),
           industry: listing.tags?.[0] || classifyIndustry(listing.title, cleanDescription),
           description: cleanDescription,
           applyLink: listing.url,
@@ -246,9 +189,6 @@ export async function syncArbeitnowFeed() {
   return { totalSynced };
 }
 
-// Arbeitnow has no "closed job" endpoint like Jobo's — there's no reliable
-// way to detect removals from this source, so Arbeitnow-sourced jobs rely
-// on staleness alone. Consider this a known limitation of this free source.
 export async function markStaleArbeitnowJobsClosed(staleDays = 21) {
   const cutoff = new Date(Date.now() - staleDays * 24 * 60 * 60 * 1000);
   const result = await Job.updateMany(
@@ -256,25 +196,4 @@ export async function markStaleArbeitnowJobsClosed(staleDays = 21) {
     { status: 'closed' }
   );
   return { closedCount: result.modifiedCount };
-}
-
-function stripHtml(html = '') {
-  return html
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-const COMMON_SKILLS = [
-  'javascript', 'typescript', 'react', 'node', 'python', 'java', 'sql',
-  'excel', 'figma', 'project management', 'communication', 'sales',
-  'marketing', 'accounting', 'aws', 'docker', 'kubernetes'
-];
-
-function extractSkillNamesFromText(text) {
-  const lower = text.toLowerCase();
-  return COMMON_SKILLS.filter((skill) => lower.includes(skill));
 }
