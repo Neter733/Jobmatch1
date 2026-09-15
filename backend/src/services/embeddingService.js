@@ -1,3 +1,4 @@
+```js
 import axios from 'axios';
 import crypto from 'crypto';
 
@@ -10,6 +11,15 @@ const GEMINI_EMBEDDING_MODEL =
 const GEMINI_EMBEDDING_DIMENSIONS = Number(
   process.env.GEMINI_EMBEDDING_DIMENSIONS || 1536
 );
+
+// Gemini embedding-001 has a 2048-token input limit.
+// We keep the text comfortably below that limit.
+const MAX_TEXT_LENGTH = 7000;
+
+
+// --------------------------------------------------
+// HELPERS
+// --------------------------------------------------
 
 function requireGeminiKey() {
   if (!process.env.GEMINI_API_KEY) {
@@ -30,68 +40,87 @@ function cleanText(value) {
     .trim();
 }
 
-/**
- * Build the searchable text representation of a job.
- *
- * We deliberately include:
- * - title
- * - company
- * - location
- * - country
- * - industry
- * - extracted skills
- * - description
- *
- * This allows semantic matching to understand the overall job,
- * rather than relying only on exact skill names.
- */
-export function buildJobEmbeddingText(job) {
-  const skills = Array.isArray(job.skillsExtracted)
-    ? job.skillsExtracted.join(', ')
-    : '';
+function truncateText(value, maxLength = MAX_TEXT_LENGTH) {
+  const text = cleanText(value);
 
-  return [
-    `Job title: ${cleanText(job.title)}`,
-    `Company: ${cleanText(job.company)}`,
-    `Location: ${cleanText(job.location)}`,
-    `Country: ${cleanText(job.country)}`,
-    `Industry: ${cleanText(job.industry)}`,
-    `Skills: ${cleanText(skills)}`,
-    `Description: ${cleanText(job.description)}`
-  ]
-    .filter(Boolean)
-    .join('\n');
+  if (text.length <= maxLength) {
+    return text;
+  }
+
+  return `${text.slice(0, maxLength)}...`;
 }
 
-/**
- * Build the searchable representation of a user's CV/profile.
- */
+
+// --------------------------------------------------
+// JOB EMBEDDING TEXT
+// --------------------------------------------------
+
+export function buildJobEmbeddingText(job) {
+  const skills = Array.isArray(job.skillsExtracted)
+    ? job.skillsExtracted
+        .map(cleanText)
+        .filter(Boolean)
+        .join(', ')
+    : '';
+
+  const title = cleanText(job.title);
+  const company = cleanText(job.company);
+  const location = cleanText(job.location);
+  const country = cleanText(job.country);
+  const industry = cleanText(job.industry);
+  const description = truncateText(job.description);
+
+  return [
+    title ? `Job title: ${title}` : '',
+    company ? `Company: ${company}` : '',
+    location ? `Location: ${location}` : '',
+    country ? `Country: ${country}` : '',
+    industry ? `Industry: ${industry}` : '',
+    skills ? `Skills: ${skills}` : '',
+    description ? `Description: ${description}` : ''
+  ]
+    .filter(Boolean)
+    .join('\n')
+    .slice(0, MAX_TEXT_LENGTH);
+}
+
+
+// --------------------------------------------------
+// USER / CV EMBEDDING TEXT
+// --------------------------------------------------
+
 export function buildUserEmbeddingText(user) {
   const skills = Array.isArray(user.skillsProfile?.skills)
-    ? user.skillsProfile.skills.join(', ')
+    ? user.skillsProfile.skills
+        .map(cleanText)
+        .filter(Boolean)
+        .join(', ')
     : '';
 
   const experienceYears =
-    user.skillsProfile?.parsedExperienceYears || 0;
+    Number(user.skillsProfile?.parsedExperienceYears || 0);
 
   const rawCvText =
-    user.skillsProfile?.rawParsedText || '';
+    truncateText(
+      user.skillsProfile?.rawParsedText || '',
+      6000
+    );
 
   return [
-    `Skills: ${cleanText(skills)}`,
+    skills ? `Skills: ${skills}` : '',
     `Professional experience: ${experienceYears} years`,
-    `CV/resume: ${cleanText(rawCvText)}`
+    rawCvText ? `CV/resume: ${rawCvText}` : ''
   ]
     .filter(Boolean)
-    .join('\n');
+    .join('\n')
+    .slice(0, MAX_TEXT_LENGTH);
 }
 
-/**
- * Gemini Embedding API.
- *
- * We use RETRIEVAL_DOCUMENT for jobs and RETRIEVAL_QUERY for users.
- * This is designed specifically for retrieval/search-style matching.
- */
+
+// --------------------------------------------------
+// GEMINI EMBEDDING REQUEST
+// --------------------------------------------------
+
 async function embedTexts(texts, taskType) {
   requireGeminiKey();
 
@@ -104,15 +133,19 @@ async function embedTexts(texts, taskType) {
 
   const requests = texts.map((text) => ({
     model: `models/${GEMINI_EMBEDDING_MODEL}`,
+
     content: {
       parts: [
         {
-          text
+          text: truncateText(text)
         }
       ]
     },
+
     taskType,
-    outputDimensionality: GEMINI_EMBEDDING_DIMENSIONS
+
+    outputDimensionality:
+      GEMINI_EMBEDDING_DIMENSIONS
   }));
 
   let lastError;
@@ -126,14 +159,19 @@ async function embedTexts(texts, taskType) {
         },
         {
           headers: {
-            'x-goog-api-key': process.env.GEMINI_API_KEY,
-            'Content-Type': 'application/json'
+            'x-goog-api-key':
+              process.env.GEMINI_API_KEY,
+
+            'Content-Type':
+              'application/json'
           },
+
           timeout: 60000
         }
       );
 
-      const embeddings = response.data?.embeddings;
+      const embeddings =
+        response.data?.embeddings;
 
       if (!Array.isArray(embeddings)) {
         throw new Error(
@@ -141,11 +179,32 @@ async function embedTexts(texts, taskType) {
         );
       }
 
-      return embeddings.map((item) => item.values);
+      const vectors =
+        embeddings.map(
+          (item) => item.values
+        );
+
+      // Make sure every returned vector has
+      // the dimension configured for MongoDB.
+      for (const vector of vectors) {
+        if (
+          !Array.isArray(vector) ||
+          vector.length !==
+            GEMINI_EMBEDDING_DIMENSIONS
+        ) {
+          throw new Error(
+            `Gemini returned an embedding with an unexpected dimension. Expected ${GEMINI_EMBEDDING_DIMENSIONS}.`
+          );
+        }
+      }
+
+      return vectors;
+
     } catch (error) {
       lastError = error;
 
-      const status = error.response?.status;
+      const status =
+        error.response?.status;
 
       const retryable =
         status === 429 ||
@@ -154,39 +213,54 @@ async function embedTexts(texts, taskType) {
         status === 503 ||
         status === 504;
 
-      if (!retryable || attempt === 4) {
+      if (
+        !retryable ||
+        attempt === 4
+      ) {
         break;
       }
 
-      const delay = attempt * 2000;
+      const delay =
+        attempt * 2000;
 
       console.warn(
         `[embedding] Gemini request failed (${status}). Retrying in ${delay}ms...`
       );
 
-      await new Promise((resolve) =>
-        setTimeout(resolve, delay)
+      await new Promise(
+        (resolve) =>
+          setTimeout(
+            resolve,
+            delay
+          )
       );
     }
   }
 
-  const status = lastError?.response?.status;
-  const data = lastError?.response?.data;
+  const status =
+    lastError?.response?.status;
+
+  const data =
+    lastError?.response?.data;
 
   console.error(
     '[embedding] Gemini embedding request failed:',
     status,
-    data || lastError?.message
+    data ||
+      lastError?.message
   );
 
   throw lastError;
 }
 
-/**
- * Generate one job embedding.
- */
+
+// --------------------------------------------------
+// SINGLE JOB EMBEDDING
+// --------------------------------------------------
+
 export async function generateJobEmbedding(job) {
-  const text = buildJobEmbeddingText(job);
+  const text =
+    buildJobEmbeddingText(job);
 
   if (!text.trim()) {
     throw new Error(
@@ -194,46 +268,76 @@ export async function generateJobEmbedding(job) {
     );
   }
 
-  const [embedding] = await embedTexts(
-    [text],
-    'RETRIEVAL_DOCUMENT'
-  );
+  const [embedding] =
+    await embedTexts(
+      [text],
+      'RETRIEVAL_DOCUMENT'
+    );
 
   return {
     embedding,
-    embeddingHash: hashText(text),
-    embeddingText: text
+
+    embeddingHash:
+      hashText(text),
+
+    embeddingText:
+      text
   };
 }
 
-/**
- * Generate embeddings for multiple jobs.
- */
-export async function generateJobEmbeddings(jobs) {
+
+// --------------------------------------------------
+// BATCH JOB EMBEDDINGS
+// --------------------------------------------------
+
+export async function generateJobEmbeddings(
+  jobs
+) {
   if (!jobs?.length) {
     return [];
   }
 
-  const texts = jobs.map(buildJobEmbeddingText);
+  const texts =
+    jobs.map(
+      buildJobEmbeddingText
+    );
 
-  const embeddings = await embedTexts(
-    texts,
-    'RETRIEVAL_DOCUMENT'
+  const embeddings =
+    await embedTexts(
+      texts,
+      'RETRIEVAL_DOCUMENT'
+    );
+
+  return jobs.map(
+    (job, index) => ({
+      job,
+
+      embedding:
+        embeddings[index],
+
+      embeddingHash:
+        hashText(
+          texts[index]
+        ),
+
+      embeddingText:
+        texts[index]
+    })
   );
-
-  return jobs.map((job, index) => ({
-    job,
-    embedding: embeddings[index],
-    embeddingHash: hashText(texts[index]),
-    embeddingText: texts[index]
-  }));
 }
 
-/**
- * Generate the user's matching embedding.
- */
-export async function generateUserEmbedding(user) {
-  const text = buildUserEmbeddingText(user);
+
+// --------------------------------------------------
+// USER / CV EMBEDDING
+// --------------------------------------------------
+
+export async function generateUserEmbedding(
+  user
+) {
+  const text =
+    buildUserEmbeddingText(
+      user
+    );
 
   if (!text.trim()) {
     throw new Error(
@@ -241,18 +345,29 @@ export async function generateUserEmbedding(user) {
     );
   }
 
-  const [embedding] = await embedTexts(
-    [text],
-    'RETRIEVAL_QUERY'
-  );
+  const [embedding] =
+    await embedTexts(
+      [text],
+      'RETRIEVAL_QUERY'
+    );
 
   return {
     embedding,
-    embeddingHash: hashText(text),
-    embeddingText: text
+
+    embeddingHash:
+      hashText(text),
+
+    embeddingText:
+      text
   };
 }
+
+
+// --------------------------------------------------
+// CONFIGURATION
+// --------------------------------------------------
 
 export function getEmbeddingDimensions() {
   return GEMINI_EMBEDDING_DIMENSIONS;
 }
+```
