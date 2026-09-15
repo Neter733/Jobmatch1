@@ -40,19 +40,52 @@ export async function login(req, res) {
 // reached through a customer account.
 export async function adminLogin(req, res) {
   const { email, password } = req.body;
-  const user = await User.findOne({ email });
 
-  if (!user || !user.passwordHash || !['staff', 'manager', 'admin'].includes(user.role)) {
+  const user = await User.findOne({
+    email: email?.trim()
+  });
+
+  if (!user || !user.passwordHash) {
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+
+  // Support both the old isAdmin system and the newer role system.
+  const isLegacyAdmin = user.isAdmin === true;
+  const hasTeamRole = ['staff', 'manager', 'admin'].includes(user.role);
+
+  if (!isLegacyAdmin && !hasTeamRole) {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 
   const valid = await bcrypt.compare(password, user.passwordHash);
-  if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
 
-  // Shorter-lived token for team sessions, since these accounts can see
-  // every user's CV, cover letter, and payment data.
-  const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '8h' });
-  res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
+  if (!valid) {
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+
+  // Self-heal older admin accounts.
+  // If the account was created using isAdmin=true before the role system
+  // existed, permanently upgrade its role to admin.
+  if (isLegacyAdmin && user.role !== 'admin') {
+    user.role = 'admin';
+    await user.save();
+  }
+
+  const token = jwt.sign(
+    { userId: user._id },
+    process.env.JWT_SECRET,
+    { expiresIn: '8h' }
+  );
+
+  res.json({
+    token,
+    user: {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role
+    }
+  });
 }
 
 // One-time bootstrap route for creating the very first admin account —
