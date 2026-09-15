@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>User profile — JobMatch Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@500;600&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/app.css" />
+</head>
+<body style="background:var(--bg);">
+
+  <header class="navbar">
+    <div class="container">
+      <span class="navbar-logo">JobMatch<span style="color:var(--success);">.</span></span>
+      <div style="flex:1"></div>
+      <button class="btn btn-outline" id="escalate-btn" style="padding:8px 16px;font-size:0.85rem;">Notify manager about this account</button>
+    </div>
+  </header>
+
+  <main class="page-shell" style="max-width:820px;">
+    <p class="spinner-text" id="loading-text">Loading profile…</p>
+
+    <div id="profile-content" style="display:none;">
+      <div class="panel" style="margin-bottom:20px;">
+        <h2 id="user-name" style="font-size:1.3rem;margin-bottom:4px;"></h2>
+        <p id="user-email" style="font-size:0.9rem;color:var(--muted);margin-bottom:12px;"></p>
+        <a id="cv-link" href="#" target="_blank" class="btn btn-outline" style="padding:8px 16px;font-size:0.85rem;">Download CV</a>
+      </div>
+
+      <h3 style="font-size:1.05rem;margin-bottom:12px;">Purchased applications</h3>
+      <div id="applications-list" style="margin-bottom:32px;"></div>
+
+      <h3 style="font-size:1.05rem;margin-bottom:12px;">Current job matches (for finding a replacement)</h3>
+      <div id="matches-list"></div>
+    </div>
+  </main>
+
+  <!-- Escalation modal (simple inline version) -->
+  <div id="escalate-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);align-items:center;justify-content:center;z-index:200;">
+    <div class="panel" style="max-width:420px;width:90%;background:white;">
+      <h3 style="font-size:1rem;">Notify manager about this account</h3>
+      <textarea class="field" id="escalate-message" rows="4" placeholder="Describe the issue…" style="margin:12px 0;"></textarea>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn btn-outline" id="escalate-cancel-btn" style="padding:8px 16px;font-size:0.85rem;">Cancel</button>
+        <button class="btn btn-primary" id="escalate-send-btn" style="padding:8px 16px;font-size:0.85rem;">Send</button>
+      </div>
+      <p class="error-text" id="escalate-error" style="display:none;"></p>
+    </div>
+  </div>
+
+  <script src="../js/config.js"></script>
+  <script src="../js/api.js"></script>
+  <script>
+    if (!localStorage.getItem('adminToken')) window.location.href = 'login.html';
+    const ADMIN_OPTS = { tokenKey: 'adminToken' };
+
+    const userId = new URLSearchParams(window.location.search).get('id');
+
+    async function loadProfile() {
+      const loadingText = document.getElementById('loading-text');
+      try {
+        const data = await api.get(`/staff/users/${userId}`, ADMIN_OPTS);
+        loadingText.style.display = 'none';
+        document.getElementById('profile-content').style.display = 'block';
+        renderProfile(data);
+      } catch (err) {
+        loadingText.textContent = err.message;
+      }
+    }
+
+    function renderProfile(data) {
+      document.getElementById('user-name').textContent = data.user.name;
+      document.getElementById('user-email').textContent = data.user.email;
+
+      const cvLink = document.getElementById('cv-link');
+      if (data.user.cvUrl) {
+        cvLink.href = data.user.cvUrl;
+      } else {
+        cvLink.textContent = 'No CV uploaded';
+        cvLink.style.pointerEvents = 'none';
+        cvLink.style.opacity = '0.5';
+      }
+
+      const appsList = document.getElementById('applications-list');
+      appsList.innerHTML = data.applications.map((a) => `
+        <div class="queue-item">
+          <div>
+            <p style="font-size:0.9rem;font-weight:500;margin:0;">${escapeHtml(a.jobTitle)} — ${escapeHtml(a.company || '')}</p>
+            <p style="font-size:0.8rem;color:var(--muted);margin:2px 0 0;">
+              Status: ${escapeHtml(a.status)} ${a.jobStatus === 'closed' ? '<span class="queue-status-closed">(job closed)</span>' : ''}
+              · ${a.amount / 100} ${a.currency}
+            </p>
+            <div class="queue-links">
+              ${a.coverLetterUrl ? `<a href="${a.coverLetterUrl}" target="_blank">Cover letter</a>` : ''}
+              ${a.applyLink ? `<a href="${a.applyLink}" target="_blank">Apply link</a>` : ''}
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            ${a.status === 'queued' ? `<button class="btn btn-primary mark-applied-btn" data-id="${a._id}" style="padding:8px 16px;font-size:0.8rem;">Application completed</button>` : ''}
+            ${a.jobStatus === 'closed' && a.status !== 'applied' ? `<button class="btn btn-outline replace-btn" data-id="${a._id}" style="padding:8px 16px;font-size:0.8rem;">Find replacement</button>` : ''}
+          </div>
+        </div>
+      `).join('') || '<p style="color:var(--muted);font-size:0.9rem;">No applications yet.</p>';
+
+      document.querySelectorAll('.mark-applied-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          btn.textContent = 'Marking…';
+          try {
+            await api.post(`/staff/queue/${btn.dataset.id}/mark-applied`, {}, ADMIN_OPTS);
+            loadProfile();
+          } catch (err) {
+            alert(err.message);
+            btn.disabled = false;
+            btn.textContent = 'Application completed';
+          }
+        });
+      });
+
+      document.querySelectorAll('.replace-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          btn.textContent = 'Finding…';
+          try {
+            await api.post(`/staff/queue/${btn.dataset.id}/replace-closed-job`, {}, ADMIN_OPTS);
+            loadProfile();
+          } catch (err) {
+            alert(err.message);
+            btn.disabled = false;
+            btn.textContent = 'Find replacement';
+          }
+        });
+      });
+
+      const matchesList = document.getElementById('matches-list');
+      matchesList.innerHTML = data.currentMatches.map((m) => `
+        <div class="job-card" style="cursor:default;">
+          <div class="job-card-row">
+            <span class="job-card-title">${escapeHtml(m.title)}</span>
+            <span class="job-card-score">${m.matchScore}% match</span>
+          </div>
+          <p class="job-card-loc">${escapeHtml(m.location || '')}</p>
+        </div>
+      `).join('') || '<p style="color:var(--muted);font-size:0.9rem;">No current matches.</p>';
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str || '';
+      return div.innerHTML;
+    }
+
+    // Escalation modal wiring
+    document.getElementById('escalate-btn').addEventListener('click', () => {
+      document.getElementById('escalate-modal').style.display = 'flex';
+    });
+    document.getElementById('escalate-cancel-btn').addEventListener('click', () => {
+      document.getElementById('escalate-modal').style.display = 'none';
+    });
+    document.getElementById('escalate-send-btn').addEventListener('click', async () => {
+      const message = document.getElementById('escalate-message').value.trim();
+      const errorEl = document.getElementById('escalate-error');
+      errorEl.style.display = 'none';
+      if (!message) return;
+      try {
+        await api.post('/staff/escalate', { aboutUserId: userId, message }, ADMIN_OPTS);
+        document.getElementById('escalate-modal').style.display = 'none';
+        document.getElementById('escalate-message').value = '';
+      } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.style.display = 'block';
+      }
+    });
+
+    loadProfile();
+  </script>
+</body>
+</html>

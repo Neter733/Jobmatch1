@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Users — JobMatch Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@500;600&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/app.css" />
+</head>
+<body style="background:var(--bg);">
+
+  <div class="admin-layout">
+    <aside class="admin-sidebar" id="admin-sidebar-root"></aside>
+    <main class="admin-main">
+      <h1 style="font-size:1.3rem;margin-bottom:20px;">Users</h1>
+
+      <div class="panel" style="margin-bottom:24px;">
+        <h3 style="font-size:1rem;margin-bottom:12px;">Send an announcement to all users</h3>
+        <form id="announce-form" class="form-stack" style="max-width:480px;">
+          <input class="field" type="text" id="announce-title" placeholder="Title" required />
+          <textarea class="field" id="announce-message" rows="3" placeholder="Message" required></textarea>
+          <button type="submit" class="btn btn-primary" id="announce-btn">Send to all users</button>
+          <p class="success-text" id="announce-success" style="display:none;"></p>
+        </form>
+      </div>
+
+      <p class="spinner-text" id="loading-text">Loading users…</p>
+      <div id="users-list"></div>
+    </main>
+  </div>
+
+  <script src="../js/config.js"></script>
+  <script src="../js/api.js"></script>
+  <script src="../js/admin-layout.js"></script>
+  <script>
+    renderAdminLayout('users');
+
+    // Sending announcements is a manager+ action — hide the panel for plain staff
+    if (!['manager', 'admin'].includes(localStorage.getItem('adminRole'))) {
+      document.getElementById('announce-form').closest('.panel').style.display = 'none';
+    }
+
+    document.getElementById('announce-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('announce-btn');
+      const successEl = document.getElementById('announce-success');
+      btn.disabled = true;
+      btn.textContent = 'Sending…';
+      try {
+        const result = await api.post('/team/notifications', {
+          title: document.getElementById('announce-title').value,
+          message: document.getElementById('announce-message').value
+        }, ADMIN_OPTS);
+        successEl.textContent = `Sent to ${result.sentTo} users.`;
+        successEl.style.display = 'block';
+        e.target.reset();
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Send to all users';
+      }
+    });
+
+    async function loadUsers() {
+      const loadingText = document.getElementById('loading-text');
+      try {
+        const users = await api.get('/staff/users', ADMIN_OPTS);
+        loadingText.style.display = 'none';
+        document.getElementById('users-list').innerHTML = users.map((u) => `
+          <div class="team-row">
+            <div>
+              <p style="font-size:0.9rem;font-weight:500;margin:0;">${escapeHtml(u.name)}</p>
+              <p style="font-size:0.8rem;color:var(--muted);margin:2px 0 0;">${escapeHtml(u.email)} · joined ${new Date(u.createdAt).toLocaleDateString()}</p>
+            </div>
+            <a href="user-profile.html?id=${u._id}" target="_blank" class="btn btn-outline" style="padding:8px 16px;font-size:0.8rem;">Open profile</a>
+          </div>
+        `).join('') || '<p style="color:var(--muted);font-size:0.9rem;">No users yet.</p>';
+      } catch (err) {
+        loadingText.textContent = err.message;
+      }
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str || '';
+      return div.innerHTML;
+    }
+
+    loadUsers();
+  </script>
+</body>
+</html>

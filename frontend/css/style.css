@@ -198,6 +198,8 @@ textarea.field { resize: vertical; min-height: 100px; }
 .navbar-actions { display: flex; align-items: center; gap: 16px; }
 .navbar-mobile-toggle { display: none; background: none; border: none; cursor: pointer; }
 
+.mobile-nav-extra { display: none; }
+
 @media (max-width: 860px) {
   .navbar-links { display: none; }
   .navbar-mobile-toggle { display: block; }
@@ -210,6 +212,11 @@ textarea.field { resize: vertical; min-height: 100px; }
     padding: 16px 24px;
     border-bottom: 1px solid var(--border);
     gap: 16px;
+  }
+  .navbar-links.navbar-links-open .mobile-nav-extra {
+    display: block;
+    font-weight: 500;
+    color: var(--brand);
   }
 }
 

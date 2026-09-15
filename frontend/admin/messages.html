@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Messages — JobMatch Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@500;600&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/app.css" />
+  <style>
+    .chat-unread-badge {
+      background: var(--error); color: white; font-size: 0.68rem;
+      min-width: 16px; height: 16px; border-radius: 8px;
+      display: inline-flex; align-items: center; justify-content: center;
+      padding: 0 5px; margin-left: 6px; float: right;
+    }
+  </style>
+</head>
+<body style="background:var(--bg);">
+
+  <div class="admin-layout">
+    <aside class="admin-sidebar" id="admin-sidebar-root"></aside>
+    <div class="chat-layout" style="flex:1;">
+      <div class="chat-contacts" id="chat-contacts">
+        <div class="chat-contact active" data-room="team">
+          💬 Team channel<span class="chat-unread-badge" id="team-unread-badge" style="display:none;"></span>
+        </div>
+      </div>
+      <div class="chat-main">
+        <div class="chat-messages" id="chat-messages"></div>
+        <div class="chat-input-bar">
+          <input type="file" id="chat-file" style="display:none;" />
+          <button class="btn btn-outline" id="chat-attach-btn" style="padding:10px 14px;">📎</button>
+          <input type="text" id="chat-text" placeholder="Type a message…" class="field" />
+          <button class="btn btn-primary" id="chat-send-btn">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="../js/config.js"></script>
+  <script src="../js/api.js"></script>
+  <script src="../js/admin-layout.js"></script>
+  <script>
+    renderAdminLayout('messages');
+
+    let currentRoom = 'team';
+    let currentWithId = null;
+    let unreadCounts = {};
+
+    async function loadUnreadCounts() {
+      try {
+        unreadCounts = await api.get('/messages/unread-counts', ADMIN_OPTS);
+        applyUnreadBadges();
+      } catch (err) {
+        console.error(err.message);
+      }
+    }
+
+    function applyUnreadBadges() {
+      const teamBadge = document.getElementById('team-unread-badge');
+      const teamCount = currentRoom === 'team' ? 0 : (unreadCounts.team || 0);
+      teamBadge.style.display = teamCount > 0 ? 'inline-flex' : 'none';
+      teamBadge.textContent = teamCount > 9 ? '9+' : teamCount;
+
+      document.querySelectorAll('[data-user-id]').forEach((el) => {
+        const badge = el.querySelector('.chat-unread-badge');
+        const count = currentWithId === el.dataset.userId ? 0 : (unreadCounts[el.dataset.userId] || 0);
+        if (badge) {
+          badge.style.display = count > 0 ? 'inline-flex' : 'none';
+          badge.textContent = count > 9 ? '9+' : count;
+        }
+      });
+    }
+
+    async function loadContacts() {
+      try {
+        const contacts = await api.get('/messages/contacts', ADMIN_OPTS);
+        const container = document.getElementById('chat-contacts');
+        container.querySelectorAll('[data-user-id]').forEach((el) => el.remove());
+
+        contacts.forEach((c) => {
+          const div = document.createElement('div');
+          div.className = 'chat-contact';
+          if (currentWithId === c._id) div.classList.add('active');
+          div.dataset.userId = c._id;
+          div.innerHTML = `
+            <span class="online-dot ${c.isOnline ? 'online' : ''}"></span>${escapeHtml(c.name)} (${c.role})
+            <span class="chat-unread-badge" style="display:none;"></span>
+          `;
+          div.addEventListener('click', () => switchToDirectChat(c._id, div));
+          container.appendChild(div);
+        });
+
+        applyUnreadBadges();
+      } catch (err) {
+        console.error(err.message);
+      }
+    }
+
+    function switchToDirectChat(userId, el) {
+      document.querySelectorAll('.chat-contact').forEach((c) => c.classList.remove('active'));
+      el.classList.add('active');
+      currentRoom = null;
+      currentWithId = userId;
+      loadMessages();
+      applyUnreadBadges();
+    }
+
+    document.querySelector('[data-room="team"]').addEventListener('click', function () {
+      document.querySelectorAll('.chat-contact').forEach((c) => c.classList.remove('active'));
+      this.classList.add('active');
+      currentRoom = 'team';
+      currentWithId = null;
+      loadMessages();
+      applyUnreadBadges();
+    });
+
+    async function loadMessages() {
+      try {
+        const params = currentRoom === 'team' ? { room: 'team' } : { with: currentWithId };
+        const query = new URLSearchParams(params).toString();
+        const messages = await api.get(`/messages/messages?${query}`, ADMIN_OPTS);
+        renderMessages(messages);
+      } catch (err) {
+        console.error(err.message);
+      }
+    }
+
+    function renderMessages(messages) {
+      const container = document.getElementById('chat-messages');
+      const myId = localStorage.getItem('adminId');
+      const wasAtBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 40;
+
+      container.innerHTML = messages.map((m) => `
+        <div class="chat-bubble ${String(m.sender._id) === myId ? 'mine' : 'theirs'}">
+          <div class="chat-bubble-sender">${escapeHtml(m.sender.name)}</div>
+          ${m.text ? escapeHtml(m.text) : ''}
+          ${m.fileUrl ? `<div><a href="${m.fileUrl}" target="_blank" style="color:inherit;text-decoration:underline;">📎 ${escapeHtml(m.fileName || 'file')}</a></div>` : ''}
+        </div>
+      `).join('');
+
+      if (wasAtBottom || messages.length <= 1) {
+        container.scrollTop = container.scrollHeight;
+      }
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str || '';
+      return div.innerHTML;
+    }
+
+    document.getElementById('chat-attach-btn').addEventListener('click', () => {
+      document.getElementById('chat-file').click();
+    });
+
+    async function sendMessage() {
+      const textInput = document.getElementById('chat-text');
+      const fileInput = document.getElementById('chat-file');
+      const text = textInput.value.trim();
+      const file = fileInput.files[0];
+      if (!text && !file) return;
+
+      const formData = new FormData();
+      formData.append('text', text);
+      if (currentRoom === 'team') formData.append('room', 'team');
+      else formData.append('with', currentWithId);
+      if (file) formData.append('file', file);
+
+      try {
+        await api.postForm('/messages/messages', formData, ADMIN_OPTS);
+        textInput.value = '';
+        fileInput.value = '';
+        loadMessages();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    document.getElementById('chat-send-btn').addEventListener('click', sendMessage);
+    document.getElementById('chat-text').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') sendMessage();
+    });
+    document.getElementById('chat-file').addEventListener('change', () => {
+      if (document.getElementById('chat-file').files[0]) sendMessage();
+    });
+
+    loadContacts();
+    loadMessages();
+    loadUnreadCounts();
+    setInterval(loadMessages, 4000); // polling-based "real-time" chat
+    setInterval(loadContacts, 15000); // keep online dots current
+    setInterval(loadUnreadCounts, 8000); // keep unread badges current
+  </script>
+</body>
+</html>

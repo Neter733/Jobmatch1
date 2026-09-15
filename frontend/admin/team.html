@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Team — JobMatch Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@500;600&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/app.css" />
+</head>
+<body style="background:var(--bg);">
+
+  <div class="admin-layout">
+    <aside class="admin-sidebar" id="admin-sidebar-root"></aside>
+    <main class="admin-main">
+      <h1 style="font-size:1.3rem;margin-bottom:20px;">Team</h1>
+
+      <div class="panel" style="margin-bottom:24px;">
+        <h3 style="font-size:1rem;margin-bottom:12px;">Add a team member</h3>
+        <form id="create-form" class="form-stack" style="max-width:420px;">
+          <input class="field" type="text" id="new-name" placeholder="Full name" required />
+          <input class="field" type="email" id="new-email" placeholder="Email" required />
+          <input class="field" type="password" id="new-password" placeholder="Temporary password (min. 8 characters)" minlength="8" required />
+          <select class="field" id="new-role">
+            <option value="staff">Staff</option>
+            <option value="manager" id="manager-option">Manager</option>
+          </select>
+          <button type="submit" class="btn btn-primary" id="create-btn">Create account</button>
+          <p class="error-text" id="create-error" style="display:none;"></p>
+          <p class="success-text" id="create-success" style="display:none;">Account created.</p>
+        </form>
+      </div>
+
+      <h3 style="font-size:1rem;margin-bottom:12px;">Team members</h3>
+      <p class="spinner-text" id="loading-text">Loading team…</p>
+      <div id="team-list" style="margin-bottom:32px;"></div>
+
+      <h3 style="font-size:1rem;margin-bottom:12px;">Escalated accounts</h3>
+      <div id="escalations-list"></div>
+    </main>
+  </div>
+
+  <!-- Reset password modal -->
+  <div id="reset-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);align-items:center;justify-content:center;z-index:200;">
+    <div class="panel" style="max-width:380px;width:90%;background:white;">
+      <h3 style="font-size:1rem;">Reset password</h3>
+      <input class="field" type="password" id="reset-password-input" placeholder="New password (min. 8 characters)" minlength="8" style="margin:12px 0;" />
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn btn-outline" id="reset-cancel-btn" style="padding:8px 16px;font-size:0.85rem;">Cancel</button>
+        <button class="btn btn-primary" id="reset-confirm-btn" style="padding:8px 16px;font-size:0.85rem;">Reset</button>
+      </div>
+      <p class="error-text" id="reset-error" style="display:none;"></p>
+    </div>
+  </div>
+
+  <script src="../js/config.js"></script>
+  <script src="../js/api.js"></script>
+  <script src="../js/admin-layout.js"></script>
+  <script>
+    renderAdminLayout('team');
+
+    // Only full admin can create managers — hide that option for a manager account
+    if (localStorage.getItem('adminRole') !== 'admin') {
+      document.getElementById('manager-option').remove();
+    }
+
+    let resetTargetId = null;
+
+    async function loadTeam() {
+      const loadingText = document.getElementById('loading-text');
+      try {
+        const team = await api.get('/team/members', ADMIN_OPTS);
+        loadingText.style.display = 'none';
+        document.getElementById('team-list').innerHTML = team.map((m) => `
+          <div class="team-row">
+            <div>
+              <p style="font-size:0.9rem;font-weight:500;margin:0;">
+                <span class="online-dot ${m.isOnline ? 'online' : ''}"></span>${escapeHtml(m.name)} (${m.role})
+              </p>
+              <p style="font-size:0.8rem;color:var(--muted);margin:2px 0 0;">
+                ${escapeHtml(m.email)} · ${m.completedToday} application${m.completedToday === 1 ? '' : 's'} completed today
+              </p>
+            </div>
+            <button class="btn btn-outline reset-btn" data-id="${m._id}" style="padding:8px 16px;font-size:0.8rem;">Reset password</button>
+          </div>
+        `).join('') || '<p style="color:var(--muted);font-size:0.9rem;">No team members yet.</p>';
+
+        document.querySelectorAll('.reset-btn').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            resetTargetId = btn.dataset.id;
+            document.getElementById('reset-modal').style.display = 'flex';
+          });
+        });
+      } catch (err) {
+        loadingText.textContent = err.message;
+      }
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str || '';
+      return div.innerHTML;
+    }
+
+    document.getElementById('create-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('create-btn');
+      const errorEl = document.getElementById('create-error');
+      const successEl = document.getElementById('create-success');
+      errorEl.style.display = 'none';
+      successEl.style.display = 'none';
+      btn.disabled = true;
+      btn.textContent = 'Creating…';
+      try {
+        await api.post('/team/members', {
+          name: document.getElementById('new-name').value,
+          email: document.getElementById('new-email').value,
+          password: document.getElementById('new-password').value,
+          role: document.getElementById('new-role').value
+        }, ADMIN_OPTS);
+        successEl.style.display = 'block';
+        e.target.reset();
+        loadTeam();
+      } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Create account';
+      }
+    });
+
+    document.getElementById('reset-cancel-btn').addEventListener('click', () => {
+      document.getElementById('reset-modal').style.display = 'none';
+    });
+    document.getElementById('reset-confirm-btn').addEventListener('click', async () => {
+      const newPassword = document.getElementById('reset-password-input').value;
+      const errorEl = document.getElementById('reset-error');
+      errorEl.style.display = 'none';
+      if (!newPassword) return;
+      try {
+        await api.post(`/team/members/${resetTargetId}/reset-password`, { newPassword }, ADMIN_OPTS);
+        document.getElementById('reset-modal').style.display = 'none';
+        document.getElementById('reset-password-input').value = '';
+      } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.style.display = 'block';
+      }
+    });
+
+    loadTeam();
+    setInterval(loadTeam, 15000); // refresh online status periodically
+
+    async function loadEscalations() {
+      try {
+        const escalations = await api.get('/team/escalations', ADMIN_OPTS);
+        document.getElementById('escalations-list').innerHTML = escalations.map((e) => `
+          <div class="alert-banner" style="align-items:flex-start;">
+            <div>
+              <strong>${escapeHtml(e.aboutUser?.name || 'Unknown user')}</strong> (${escapeHtml(e.aboutUser?.email || '')})
+              flagged by ${escapeHtml(e.raisedBy?.name || 'Unknown')}
+              <p style="margin:4px 0 0;">${escapeHtml(e.message)}</p>
+            </div>
+            <button data-id="${e._id}" class="resolve-escalation-btn">Resolve</button>
+          </div>
+        `).join('') || '<p style="color:var(--muted);font-size:0.9rem;">No open escalations.</p>';
+
+        document.querySelectorAll('.resolve-escalation-btn').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            await api.post(`/team/escalations/${btn.dataset.id}/resolve`, {}, ADMIN_OPTS);
+            loadEscalations();
+          });
+        });
+      } catch (err) {
+        document.getElementById('escalations-list').innerHTML = `<p class="error-text">${err.message}</p>`;
+      }
+    }
+
+    loadEscalations();
+  </script>
+</body>
+</html>

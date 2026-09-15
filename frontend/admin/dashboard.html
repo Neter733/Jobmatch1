@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — JobMatch Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@500;600&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/app.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body style="background:var(--bg);">
+
+  <div class="admin-layout">
+    <aside class="admin-sidebar" id="admin-sidebar-root"></aside>
+    <main class="admin-main">
+      <h1 style="font-size:1.3rem;margin-bottom:20px;">Dashboard</h1>
+
+      <div class="metrics-grid" id="metrics-grid">
+        <p class="spinner-text">Loading metrics…</p>
+      </div>
+
+      <div class="panel" style="margin-bottom:20px;">
+        <h3 style="font-size:1rem;margin-bottom:16px;">Revenue — last 30 days</h3>
+        <canvas id="revenue-chart" height="90"></canvas>
+      </div>
+
+      <div class="panel">
+        <h3 style="font-size:1rem;margin-bottom:12px;">Price per application</h3>
+        <p style="font-size:0.85rem;color:var(--muted);margin-bottom:16px;">Change anytime — takes effect on the next application a user purchases.</p>
+        <div id="pricing-rows"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../js/config.js"></script>
+  <script src="../js/api.js"></script>
+  <script src="../js/admin-layout.js"></script>
+  <script>
+    renderAdminLayout('dashboard');
+
+    async function loadAnalytics() {
+      try {
+        const data = await api.get('/team/analytics', ADMIN_OPTS);
+        renderMetrics(data);
+        renderChart(data.dailyRevenue);
+      } catch (err) {
+        document.getElementById('metrics-grid').innerHTML =
+          `<p class="error-text">${err.message}</p>`;
+      }
+    }
+
+    function renderMetrics(data) {
+      const revenueText = data.revenueByCurrency
+        .map((r) => `${r.total.toLocaleString()} ${r._id}`)
+        .join(', ') || '0';
+
+      const { bestDay, worstDay } = findBestAndWorstDays(data.dailyRevenue);
+
+      document.getElementById('metrics-grid').innerHTML = `
+        <div class="metric-card">
+          <div class="metric-value">${data.userCount}</div>
+          <p class="metric-label">Users acquired</p>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value">${data.totalApplications}</div>
+          <p class="metric-label">Applications purchased</p>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value">${data.appliedCount}</div>
+          <p class="metric-label">Applications submitted</p>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value" style="font-size:1.1rem;">${revenueText}</div>
+          <p class="metric-label">Total revenue (paid)</p>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value" style="font-size:1.1rem;color:var(--success);">${bestDay ? bestDay.revenue.toLocaleString() : '—'}</div>
+          <p class="metric-label">Best day${bestDay ? ` (${bestDay._id})` : ' (last 30 days)'}</p>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value" style="font-size:1.1rem;color:var(--error);">${worstDay ? worstDay.revenue.toLocaleString() : '—'}</div>
+          <p class="metric-label">Lowest day${worstDay ? ` (${worstDay._id})` : ' (last 30 days)'}</p>
+        </div>
+      `;
+    }
+
+    function findBestAndWorstDays(dailyRevenue) {
+      if (!dailyRevenue.length) return { bestDay: null, worstDay: null };
+      const sorted = [...dailyRevenue].sort((a, b) => b.revenue - a.revenue);
+      return { bestDay: sorted[0], worstDay: sorted[sorted.length - 1] };
+    }
+
+    function renderChart(dailyRevenue) {
+      const labels = dailyRevenue.map((d) => d._id);
+      const values = dailyRevenue.map((d) => d.revenue);
+
+      new Chart(document.getElementById('revenue-chart'), {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Revenue',
+            data: values,
+            borderColor: '#4B2E83',
+            backgroundColor: 'rgba(75,46,131,0.08)',
+            fill: true,
+            tension: 0.3
+          }]
+        },
+        options: {
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true } }
+        }
+      });
+    }
+
+    loadAnalytics();
+
+    // --- Pricing ---
+    const CURRENCY_SYMBOLS = { NGN: '₦', USD: '$' };
+
+    async function loadPricing() {
+      try {
+        const prices = await api.get('/team/pricing', ADMIN_OPTS); // { NGN: 20000, USD: 100 } in minor units
+        document.getElementById('pricing-rows').innerHTML = Object.entries(prices).map(([currency, minorAmount]) => `
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+            <span style="width:50px;font-size:0.9rem;font-weight:500;">${currency}</span>
+            <span style="color:var(--muted);">${CURRENCY_SYMBOLS[currency] || ''}</span>
+            <input type="number" class="field price-input" data-currency="${currency}" value="${(minorAmount / 100).toFixed(2)}" step="0.01" min="0.01" style="max-width:140px;" />
+            <button class="btn btn-outline save-price-btn" data-currency="${currency}" style="padding:8px 16px;font-size:0.8rem;">Save</button>
+            <span class="success-text price-saved-msg" data-currency="${currency}" style="display:none;">Saved ✓</span>
+          </div>
+        `).join('');
+
+        document.querySelectorAll('.save-price-btn').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const currency = btn.dataset.currency;
+            const input = document.querySelector(`.price-input[data-currency="${currency}"]`);
+            const majorAmount = parseFloat(input.value);
+            if (!majorAmount || majorAmount <= 0) return;
+
+            btn.disabled = true;
+            try {
+              await api.post('/team/pricing', { currency, amount: Math.round(majorAmount * 100) }, ADMIN_OPTS);
+              const msg = document.querySelector(`.price-saved-msg[data-currency="${currency}"]`);
+              msg.style.display = 'inline';
+              setTimeout(() => { msg.style.display = 'none'; }, 2000);
+            } catch (err) {
+              alert(err.message);
+            } finally {
+              btn.disabled = false;
+            }
+          });
+        });
+      } catch (err) {
+        document.getElementById('pricing-rows').innerHTML = `<p class="error-text">${err.message}</p>`;
+      }
+    }
+
+    loadPricing();
+  </script>
+</body>
+</html>

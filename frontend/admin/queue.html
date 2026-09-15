@@ -11,25 +11,18 @@
 </head>
 <body style="background:var(--bg);">
 
-  <header class="navbar">
-    <div class="container">
-      <span class="navbar-logo">JobMatch<span style="color:var(--success);">.</span> Admin</span>
-      <div style="flex:1"></div>
-      <button class="btn btn-outline" id="logout-btn" style="padding:8px 16px;font-size:0.85rem;">Log out</button>
-    </div>
-  </header>
-
-  <main class="wide-shell">
-    <h1 style="font-size:1.3rem;margin-bottom:16px;">Application queue</h1>
-
-    <div id="alerts-container"></div>
-
-    <p class="spinner-text" id="loading-text">Loading queue…</p>
-    <div id="queue-container"></div>
-  </main>
+  <div class="admin-layout">
+    <aside class="admin-sidebar" id="admin-sidebar-root"></aside>
+    <main class="admin-main">
+      <h1 style="font-size:1.3rem;margin-bottom:16px;">Application queue</h1>
+      <p class="spinner-text" id="loading-text">Loading queue…</p>
+      <div id="queue-container"></div>
+    </main>
+  </div>
 
   <script src="../js/config.js"></script>
   <script src="../js/api.js"></script>
+  <script src="../js/admin-layout.js"></script>
   <script src="../js/admin-queue.js"></script>
 </body>
 </html>

@@ -14,7 +14,7 @@
   <div class="admin-shell">
     <div class="admin-card">
       <h1 style="font-size:1.2rem;">Admin sign in</h1>
-      <p style="font-size:0.8rem;">Restricted access — application queue management only.</p>
+      <p style="font-size:0.8rem;">Restricted access — staff, manager, and admin accounts only.</p>
 
       <form id="admin-login-form" class="form-stack">
         <input class="field" type="email" id="email" placeholder="Admin email" required />
@@ -41,7 +41,10 @@
           password: document.getElementById('password').value
         });
         localStorage.setItem('adminToken', data.token);
-        window.location.href = 'queue.html';
+        localStorage.setItem('adminRole', data.user.role);
+        localStorage.setItem('adminName', data.user.name);
+        localStorage.setItem('adminId', data.user.id);
+        window.location.href = 'dashboard.html';
       } catch (err) {
         errorEl.textContent = err.message;
         errorEl.style.display = 'block';

@@ -2,16 +2,50 @@ if (!localStorage.getItem('token')) {
   window.location.href = 'login.html';
 }
 
-const FEE_PER_APPLICATION = 200;
+const CURRENCY_SYMBOLS = { NGN: '₦', USD: '$' };
 let matches = [];
 let selectedIds = new Set();
+let currentPrice = { currency: 'NGN', amount: 0 }; // fetched from the backend — admin-editable, not hardcoded
+
+async function loadPricing() {
+  try {
+    currentPrice = await api.get('/applications/pricing');
+  } catch {
+    // fall back silently — the apply buttons will just show ₦0 until this loads,
+    // rather than blocking the whole page over a pricing display issue
+  }
+}
+
+async function loadMyStats() {
+  try {
+    const stats = await api.get('/applications/my-stats');
+    const spentText = stats.totalSpent.length
+      ? stats.totalSpent.map((s) => `${CURRENCY_SYMBOLS[s._id] || ''}${(s.total / 100).toLocaleString()}`).join(', ')
+      : `${CURRENCY_SYMBOLS[currentPrice.currency] || ''}0`;
+
+    document.getElementById('my-stats-grid').innerHTML = `
+      <div class="metric-card">
+        <div class="metric-value">${spentText}</div>
+        <p class="metric-label">Total spent on JobMatch</p>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value">${stats.jobsAppliedCount}</div>
+        <p class="metric-label">Jobs applied to</p>
+      </div>
+    `;
+  } catch {
+    // non-critical — the page still works fine without these stats showing
+  }
+}
 
 async function loadMatches() {
   const loadingText = document.getElementById('loading-text');
   try {
+    await loadPricing();
     matches = await api.get('/jobs/matches');
     loadingText.style.display = 'none';
     renderJobs();
+    loadMyStats();
   } catch (err) {
     if (err.message.includes('authenticated') || err.message.includes('Invalid or expired')) {
       localStorage.removeItem('token');
@@ -20,6 +54,12 @@ async function loadMatches() {
     }
     loadingText.textContent = err.message;
   }
+}
+
+function formatPrice(count) {
+  const symbol = CURRENCY_SYMBOLS[currentPrice.currency] || '';
+  const total = (count * currentPrice.amount) / 100; // amount is stored in minor units
+  return `${symbol}${total.toLocaleString()}`;
 }
 
 function renderJobs() {
@@ -53,6 +93,9 @@ function renderJobs() {
       submitApplication([btn.dataset.id]);
     });
   });
+
+  updateSelectedButton();
+  updateApplyAllButton();
 }
 
 function toggleSelect(id, card) {
@@ -69,8 +112,13 @@ function toggleSelect(id, card) {
 function updateSelectedButton() {
   const btn = document.getElementById('apply-selected-btn');
   const count = selectedIds.size;
-  btn.textContent = `Apply to ${count} selected (₦${count * FEE_PER_APPLICATION})`;
+  btn.textContent = `Apply to ${count} selected (${formatPrice(count)})`;
   btn.disabled = count === 0;
+}
+
+function updateApplyAllButton() {
+  const btn = document.getElementById('apply-all-btn');
+  btn.textContent = `Apply to all ${matches.length} matches (${formatPrice(matches.length)})`;
 }
 
 function escapeHtml(str) {
