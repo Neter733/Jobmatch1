@@ -2,40 +2,121 @@ import mongoose from 'mongoose';
 
 const userSchema = new mongoose.Schema(
   {
-    name: { type: String, required: true },
-    email: { type: String, required: true, unique: true },
-    passwordHash: { type: String }, // null if signed up via Google
-    googleId: { type: String },
+    name: {
+      type: String,
+      required: true
+    },
 
-    currency: { type: String, enum: ['NGN', 'USD'], default: 'NGN' },
+    email: {
+      type: String,
+      required: true,
+      unique: true
+    },
 
-    cvUrl: { type: String }, // Cloudinary signed URL
+    passwordHash: {
+      type: String
+    },
+
+    googleId: {
+      type: String
+    },
+
+    currency: {
+      type: String,
+      enum: ['NGN', 'USD'],
+      default: 'NGN'
+    },
+
+    cvUrl: {
+      type: String
+    },
+
     skillsProfile: {
       skills: [String],
+
       parsedExperienceYears: Number,
-      rawParsedText: String // raw AI-parsed CV text, used by matchingService
+
+      rawParsedText: String
     },
 
-    // Mandatory 1000-word onboarding questionnaire feeding cover letter generation
+
+    // --------------------------------------------------
+    // SEMANTIC CV MATCHING
+    // --------------------------------------------------
+
+    // Cached vector representation of the user's CV.
+    matchingEmbedding: {
+      type: [Number],
+      default: undefined
+    },
+
+    // Hash of the CV/profile that produced the vector.
+    matchingEmbeddingHash: {
+      type: String,
+      default: null
+    },
+
+    matchingEmbeddingUpdatedAt: Date,
+
+
+    // --------------------------------------------------
+    // COVER LETTER QUESTIONNAIRE
+    // --------------------------------------------------
+
     coverLetterQuestionnaire: {
-      greatestAchievement: { type: String, default: '' },
-      skillsAndTools: { type: String, default: '' },
-      experienceSummary: { type: String, default: '' },
-      wordCount: { type: Number, default: 0 }
+      greatestAchievement: {
+        type: String,
+        default: ''
+      },
+
+      skillsAndTools: {
+        type: String,
+        default: ''
+      },
+
+      experienceSummary: {
+        type: String,
+        default: ''
+      },
+
+      wordCount: {
+        type: Number,
+        default: 0
+      }
     },
 
-    // 'user' = regular customer. 'staff'/'manager'/'admin' = internal team.
-    // isAdmin is kept for backward compatibility with existing admin
-    // auth checks, but role is the source of truth going forward.
-    role: { type: String, enum: ['user', 'staff', 'manager', 'admin'], default: 'user' },
-    isAdmin: { type: Boolean, default: false },
 
-    // For staff/manager/admin: updated on every heartbeat while their
-    // dashboard tab is open, used to show "online" status to managers.
-    lastActiveAt: { type: Date }
+    // --------------------------------------------------
+    // USER ROLES
+    // --------------------------------------------------
 
+    role: {
+      type: String,
+      enum: [
+        'user',
+        'staff',
+        'manager',
+        'admin'
+      ],
+      default: 'user'
+    },
+
+    isAdmin: {
+      type: Boolean,
+      default: false
+    },
+
+
+    lastActiveAt: Date
   },
-  { timestamps: true }
+
+  {
+    timestamps: true
+  }
 );
 
-export default mongoose.model('User', userSchema);
+
+export default mongoose.model(
+  'User',
+  userSchema
+);
